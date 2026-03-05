@@ -4,6 +4,9 @@
 
 This project is an open-source motivator that I've "vibe coded" for my school project. I've decided to share my creativity with everyone!
 
+## Important Note
+* **pgmspace.h:** This library is already included in the source code folder. You do not need to install it manually from external links.
+
 ## Required Libraries
 To compile this project, you will need the following libraries:
 * `Wire.h` / `EEPROM.h` / `vector` (Standard)
@@ -11,7 +14,6 @@ To compile this project, you will need the following libraries:
 * [Adafruit_SH110X](https://github.com/adafruit/Adafruit_SH110x)
 * [ezButton](https://github.com/ArduinoGetStarted/button)
 * [RTClib](https://github.com/adafruit/RTClib)
-* [pgmspace.h](https://github.com/arduino/ArduinoCore-sam/tree/master/cores/arduino/avr)
 * [MakeFont](http://arduino.vn/bai-viet/7505-hien-thi-tieng-viet-va-moi-ngon-ngu-tren-gioi-voi-thu-vien-makefont)
 
 ---
@@ -35,6 +37,9 @@ To compile this project, you will need the following libraries:
 
 Dự án này là một thiết bị truyền động lực nguồn mở mà tôi đã "vibe coded" cho bài tập ở trường. Tôi quyết định công khai mã nguồn để chia sẻ sự sáng tạo này tới mọi người!
 
+## Lưu ý quan trọng
+* **pgmspace.h:** Thư viện này đã được tích hợp sẵn trong thư mục mã nguồn của dự án. Bạn không cần phải tải hay cài đặt thêm từ bên ngoài.
+
 ## Thư viện yêu cầu
 * `Wire.h`, `EEPROM.h`, `vector` (Thư viện chuẩn)
 * Các thư viện Adafruit (GFX, SH110X) và RTClib.
@@ -57,6 +62,8 @@ Dự án này là một thiết bị truyền động lực nguồn mở mà tô
 
 ## Sơ đồ đấu dây chi tiết
 
+
+
 ### Màn hình & Thời gian (I2C)
 *Cả màn hình OLED và module RTC dùng chung chân I2C.*
 * **VCC:** 3V3
@@ -76,6 +83,6 @@ Dự án này là một thiết bị truyền động lực nguồn mở mà tô
 
 ### Hệ thống nguồn
 1. **Pin** [P+/B+] -> **TP4056** [B+/B-]
-2. **TP4056** [OUT+/OUT-] -> **Mạch tăng áp** [VIN+/VIN- ]
+2. **TP4056** [OUT+/OUT-] -> **Mạch tăng áp** [VIN+/VIN-]
 3. **Mạch tăng áp** [VOUT+] -> **ESP32** [5V]
 4. **Mạch tăng áp** [VOUT-] -> **ESP32** [GND]
