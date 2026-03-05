@@ -7,14 +7,13 @@ This project is an open-source motivator that I've "vibe coded" for my school pr
 ## Important Note
 * **pgmspace.h:** This library is already included in the source code folder. You do not need to install it manually from external links.
 
-## Required Libraries
-To compile this project, you will need the following libraries:
-* `Wire.h` / `EEPROM.h` / `vector` (Standard)
-* [Adafruit_GFX](https://github.com/adafruit/Adafruit-GFX-Library)
-* [Adafruit_SH110X](https://github.com/adafruit/Adafruit_SH110x)
-* [ezButton](https://github.com/ArduinoGetStarted/button)
-* [RTClib](https://github.com/adafruit/RTClib)
-* [MakeFont](http://arduino.vn/bai-viet/7505-hien-thi-tieng-viet-va-moi-ngon-ngu-tren-gioi-voi-thu-vien-makefont)
+## Required Libraries & Credits
+I would like to express my gratitude to the authors of the following libraries:
+* **Adafruit GFX & SH110X:** Developed by [Adafruit](https://github.com/adafruit).
+* **RTClib:** Originally by JeeLabs, maintained by [Adafruit](https://github.com/adafruit/RTClib).
+* **ezButton:** Created by [ArduinoGetStarted](https://github.com/ArduinoGetStarted/button).
+* **MakeFont:** Developed by [pham_duy_anh](http://arduino.vn/bai-viet/7505-hien-thi-tieng-viet-va-moi-ngon-ngu-tren-gioi-voi-thu-vien-makefont).
+* **Standard Libraries:** `Wire.h`, `EEPROM.h`, `vector`, `pgmspace.h` (Arduino/ESP32 Core teams).
 
 ---
 
@@ -40,10 +39,13 @@ Dự án này là một thiết bị truyền động lực nguồn mở mà tô
 ## Lưu ý quan trọng
 * **pgmspace.h:** Thư viện này đã được tích hợp sẵn trong thư mục mã nguồn của dự án. Bạn không cần phải tải hay cài đặt thêm từ bên ngoài.
 
-## Thư viện yêu cầu
-* `Wire.h`, `EEPROM.h`, `vector` (Thư viện chuẩn)
-* Các thư viện Adafruit (GFX, SH110X) và RTClib.
-* **MakeFont:** Hỗ trợ hiển thị Tiếng Việt.
+## Thư viện yêu cầu & Lời cảm ơn (Credits)
+Trân trọng cảm ơn các tác giả và cộng đồng đã phát triển các thư viện:
+* **Adafruit GFX & SH110X:** Phát triển bởi [Adafruit](https://github.com/adafruit).
+* **RTClib:** Nguyên bản bởi JeeLabs, bảo trì bởi [Adafruit](https://github.com/adafruit/RTClib).
+* **ezButton:** Phát triển bởi [ArduinoGetStarted](https://github.com/ArduinoGetStarted/button).
+* **MakeFont:** Một thư viện tuyệt vời hỗ trợ tiếng Việt bởi tác giả [pham_duy_anh](http://arduino.vn/bai-viet/7505-hien-thi-tieng-viet-va-moi-ngon-ngu-tren-gioi-voi-thu-vien-makefont).
+* **Thư viện hệ thống:** `Wire.h`, `EEPROM.h`, `vector`, `pgmspace.h` (Đội ngũ phát triển Arduino/ESP32 Core).
 
 ## Danh sách linh kiện
 | Linh kiện | Số lượng | Ghi chú |
@@ -61,8 +63,6 @@ Dự án này là một thiết bị truyền động lực nguồn mở mà tô
 ---
 
 ## Sơ đồ đấu dây chi tiết
-
-
 
 ### Màn hình & Thời gian (I2C)
 *Cả màn hình OLED và module RTC dùng chung chân I2C.*
