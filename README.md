@@ -31,50 +31,51 @@ To compile this project, you will need the following libraries:
 
 ---
 
-## Wiring Diagram
+# VN: Dự án Truyền Động Lực Nguồn Mở
 
-### Display & Time (I2C)
-*Both OLED and RTC share the same I2C pins.*
+Dự án này là một thiết bị truyền động lực nguồn mở mà tôi đã "vibe coded" cho bài tập ở trường. Tôi quyết định công khai mã nguồn để chia sẻ sự sáng tạo này tới mọi người!
+
+## Thư viện yêu cầu
+* `Wire.h`, `EEPROM.h`, `vector` (Thư viện chuẩn)
+* Các thư viện Adafruit (GFX, SH110X) và RTClib.
+* **MakeFont:** Hỗ trợ hiển thị Tiếng Việt.
+
+## Danh sách linh kiện
+| Linh kiện | Số lượng | Ghi chú |
+| :--- | :---: | :--- |
+| ESP32 C3 Super Mini | 1 | Vi điều khiển chính |
+| Màn hình OLED 1.3 inch | 1 | Driver SH1106 |
+| Module RTC DS3231 | 1 | Thời gian thực |
+| Module sạc TP4056 | 1 | Quản lý sạc pin |
+| Mạch tăng áp DC-DC | 1 | HT016 Mini |
+| Pin Lithium 3.7V | 1 | |
+| Còi chip (Buzzer) | 1 | |
+| Nút nhấn | 5 | |
+| Công tắc gạt | 1 | Công tắc nguồn |
+
+---
+
+## Sơ đồ đấu dây chi tiết
+
+### Màn hình & Thời gian (I2C)
+*Cả màn hình OLED và module RTC dùng chung chân I2C.*
 * **VCC:** 3V3
 * **GND:** GND
 * **SCL / SCK:** GPIO 6
 * **SDA:** GPIO 5
 
-### Buttons & Audio
-| Function | Pin (ESP32 C3) | Connection |
+### Nút nhấn & Âm thanh
+| Chức năng | Chân (ESP32 C3) | Cách đấu |
 | :--- | :---: | :--- |
-| **Up** | 0 | Pin -> GND |
-| **Down** | 1 | Pin -> GND |
-| **Left** | 3 | Pin -> GND |
-| **Right** | 4 | Pin -> GND |
-| **OK** | 10 | Pin -> GND |
-| **Buzzer (+)** | 7 | (-) to GND |
+| **Lên (Up)** | 0 | Chân nút -> GND |
+| **Xuống (Down)** | 1 | Chân nút -> GND |
+| **Trái (Left)** | 3 | Chân nút -> GND |
+| **Phải (Right)** | 4 | Chân nút -> GND |
+| **OK** | 10 | Chân nút -> GND |
+| **Còi (+) (Buzzer)** | 7 | Chân (-) nối GND |
 
-### Power System
-1. **Battery** [P+/B+] -> **TP4056** [B+/B-]
-2. **TP4056** [OUT+/OUT-] -> **Boost Converter** [VIN+/VIN-]
-3. **Boost Converter** [VOUT+] -> **ESP32** [5V]
-4. **Boost Converter** [VOUT-] -> **ESP32** [GND]
-
----
-
-# VN: Dự án Truyền Động Lực Nguồn Mở
-
-Dự án này là một thiết bị truyền động lực nguồn mở mà tôi đã "vibe coded" cho bài tập ở trường. 
-
-## Thư viện yêu cầu
-* `Wire.h`, `EEPROM.h`, `vector`
-* Các thư viện Adafruit (GFX, SH110X) và RTClib.
-* **MakeFont:** Hỗ trợ hiển thị Tiếng Việt.
-
-## Danh sách linh kiện
-* **ESP32 C3 Super Mini** (x1)
-* **Màn hình OLED 1.3 inch** (x1)
-* **Module RTC DS3231** (x1)
-* **Module sạc TP4056** (x1)
-* **Mạch tăng áp HT016 mini** (x1)
-* **Pin Lithium 3.7V** (x1)
-* **Còi chip, Nút nhấn (x5), Công tắc gạt**
-
-## Sơ đồ đấu dây chi tiết
-Vui lòng tham khảo bảng đấu nối ở phần tiếng Anh bên trên để đảm bảo độ chính xác của các chân GPIO.
+### Hệ thống nguồn
+1. **Pin** [P+/B+] -> **TP4056** [B+/B-]
+2. **TP4056** [OUT+/OUT-] -> **Mạch tăng áp** [VIN+/VIN- ]
+3. **Mạch tăng áp** [VOUT+] -> **ESP32** [5V]
+4. **Mạch tăng áp** [VOUT-] -> **ESP32** [GND]
