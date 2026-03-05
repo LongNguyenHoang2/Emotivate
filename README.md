@@ -9,6 +9,7 @@ EN:
 	    -EEPROM.h
 	    -RTClib.h
 	    -pgmspace.h: https://github.com/arduino/ArduinoCore-sam/tree/master/cores/arduino/avr
+		-MakeFont: http://arduino.vn/bai-viet/7505-hien-thi-tieng-viet-va-moi-ngon-ngu-tren-gioi-voi-thu-vien-makefont
 _**Components List:**_
 	    -Esp32 C3 super mini     x1
 	    -1,3 inch OLED screen    x1
@@ -62,6 +63,7 @@ VN:
 	    - EEPROM.h
 	    - RTClib.h
 	    - pgmspace.h: https://github.com/arduino/ArduinoCore-sam/tree/master/cores/arduino/avr
+		-MakeFont: http://arduino.vn/bai-viet/7505-hien-thi-tieng-viet-va-moi-ngon-ngu-tren-gioi-voi-thu-vien-makefont
 _**Danh sách linh kiện:**_
 	    - Esp32 C3 super mini x1
 	    - Màn hình OLED 1.3 inch x1
