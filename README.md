@@ -1,105 +1,80 @@
-EN:
-	This project is an open source motivator that i've vibe coded for my school project, i've decided to make it open source to share my creative to everyone!
-	_**Require library:**_
-	    -Wire.h
-	    -Adafruit_GFX.h
-	    -Adafruit_SH110X.h
-	    -vector
-	    -ezButton.h
-	    -EEPROM.h
-	    -RTClib.h
-	    -pgmspace.h: https://github.com/arduino/ArduinoCore-sam/tree/master/cores/arduino/avr
-		-MakeFont: http://arduino.vn/bai-viet/7505-hien-thi-tieng-viet-va-moi-ngon-ngu-tren-gioi-voi-thu-vien-makefont
-_**Components List:**_
-	    -Esp32 C3 super mini     x1
-	    -1,3 inch OLED screen    x1
-	    -RTC DS3231 module       x1
-	    -TP4056 Charging module  x1
-	    -DC-DC Boost Converter   x1 (I use HT016 miny)
-	    -3.7V Lithium battery    x1
-	    -Buzzer		     x1
-	    -Push buttons	     x5
-	    -Slide switch            x1
-_**Wiring:**_
-	    **-OLED Screen** (connect to Esp32 C3):
-		+ VCC: 3V3
-		+ GND: GND	
-		+ SCK: 6
-		+ SDA: 5
-	    **-RTC modul**e (connect to Esp32 C3, same as OLED screen):
-		+ VCC: 3V3
-		+ GND: GND
-		+ SDA: 5
-		+ SCL: 6
-	 _**-Buttons:_** (Wire a pin to the Esp's GPIO pin and the other pin to GND):
-	    	+ Up: 0
-		+ Down: 1
-		+ Left: 3
-		+ Right: 4
-		+ OK: 10
-	    **-Buzzer:**
-		+ (+): 7
-		+ (-): GND
-**_-Battery_**(connects to charging module):
-		+ Battery's P+/ B+: B+ 
-		+ Battery's P-/ B-: B-
-	    -Charging module (connects to boost converter):
-		+ OUT+: VIN+
-		+ OUT-: VIN-
-_**	    -Boost converter **_(connects to Esp32 C3):
-		+ VOUT+: 5V
-		+ VOUT-: GND
+# Open Source Motivator
 
+[Tiếng Việt bên dưới](#vn-du-an-truyen-dong-luc-nguon-mo)
 
+This project is an open-source motivator that I've "vibe coded" for my school project. I've decided to share my creativity with everyone!
 
-VN:
-	Dự án này là một thiết bị truyền động lực nguồn mở mà tôi đã "vibe coded" cho bài tập ở trường. Tôi quyết định công khai mã nguồn để chia sẻ sự sáng tạo này tới mọi người!
-	_**Thư viện yêu cầu:**_
-	    - Wire.h
-	    - Adafruit_GFX.h
-	    - Adafruit_SH110X.h
-	    - vector
-	    - ezButton.h
-	    - EEPROM.h
-	    - RTClib.h
-	    - pgmspace.h: https://github.com/arduino/ArduinoCore-sam/tree/master/cores/arduino/avr
-		-MakeFont: http://arduino.vn/bai-viet/7505-hien-thi-tieng-viet-va-moi-ngon-ngu-tren-gioi-voi-thu-vien-makefont
-_**Danh sách linh kiện:**_
-	    - Esp32 C3 super mini x1
-	    - Màn hình OLED 1.3 inch x1
-	    - Module RTC DS3231 x1
-	    - Module sạc TP4056 x1
-	    - Mạch tăng áp DC-DC Boost Converter x1 (Tôi dùng loại HT016 mini)
-	    - Pin Lithium 3.7V x1
-	    - Còi chip (Buzzer) x1
-	    - Nút nhấn (Push buttons) x5
-	    - Công tắc gạt (Slide switch) x1
-	**Sơ đồ đấu dây:**
-	   _**-Màn hình OLED**_ (kết nối với Esp32 C3):
-        	+ VCC: 3V3
-        	+ GND: GND
-        	+ SCK: 6
-        	+ SDA: 5
-	    _**-Module RTC**_(kết nối với Esp32 C3, chung chân với màn hình OLED):
-        	+ VCC: 3V3
-        	+ GND: GND
-        	+ SDA: 5
-        	+ SCL: 6
-    	    _-**Nút nhấn**_ (Nối một chân vào GPIO của Esp và chân còn lại vào GND):
-        	+ Lên (Up): 0
-			+ Xuống (Down): 1
-        	+ Trái (Left): 3
-        	+ Phải (Right): 4
-        	+ OK: 10
-	  _ **-Còi chip **_(Buzzer):
-        	+ (+): 7
-        	+ (-): GND
-	    _**-Pin **_(kết nối vào module sạc):
-        	+ P+/ B+ của Pin: B+
-        	+ P-/ B- của Pin: B-
-	   _ **-Module sạc**_(kết nối vào mạch tăng áp):
-	        +OUT+: VIN+
-	       	+OUT-: VIN-
-	   ** -Mạch tăng áp **(kết nối với Esp32 C3):
-	    	+VOUT+: 5V
-	    	+VOUT-: GND
+## Required Libraries
+To compile this project, you will need the following libraries:
+* `Wire.h` / `EEPROM.h` / `vector` (Standard)
+* [Adafruit_GFX](https://github.com/adafruit/Adafruit-GFX-Library)
+* [Adafruit_SH110X](https://github.com/adafruit/Adafruit_SH110x)
+* [ezButton](https://github.com/ArduinoGetStarted/button)
+* [RTClib](https://github.com/adafruit/RTClib)
+* [pgmspace.h](https://github.com/arduino/ArduinoCore-sam/tree/master/cores/arduino/avr)
+* [MakeFont](http://arduino.vn/bai-viet/7505-hien-thi-tieng-viet-va-moi-ngon-ngu-tren-gioi-voi-thu-vien-makefont)
+
+---
+
+## Components List
+| Component | Quantity | Note |
+| :--- | :---: | :--- |
+| ESP32 C3 Super Mini | 1 | Main Controller |
+| 1.3 inch OLED Screen | 1 | SH1106 Driver |
+| RTC DS3231 Module | 1 | Time keeping |
+| TP4056 Charging Module | 1 | Battery Management |
+| DC-DC Boost Converter | 1 | HT016 Mini |
+| 3.7V Lithium Battery | 1 | |
+| Buzzer | 1 | |
+| Push Buttons | 5 | |
+| Slide Switch | 1 | Power Switch |
+
+---
+
+## Wiring Diagram
+
+### Display & Time (I2C)
+*Both OLED and RTC share the same I2C pins.*
+* **VCC:** 3V3
+* **GND:** GND
+* **SCL / SCK:** GPIO 6
+* **SDA:** GPIO 5
+
+### Buttons & Audio
+| Function | Pin (ESP32 C3) | Connection |
+| :--- | :---: | :--- |
+| **Up** | 0 | Pin -> GND |
+| **Down** | 1 | Pin -> GND |
+| **Left** | 3 | Pin -> GND |
+| **Right** | 4 | Pin -> GND |
+| **OK** | 10 | Pin -> GND |
+| **Buzzer (+)** | 7 | (-) to GND |
+
+### Power System
+1. **Battery** [P+/B+] -> **TP4056** [B+/B-]
+2. **TP4056** [OUT+/OUT-] -> **Boost Converter** [VIN+/VIN-]
+3. **Boost Converter** [VOUT+] -> **ESP32** [5V]
+4. **Boost Converter** [VOUT-] -> **ESP32** [GND]
+
+---
+
+# VN: Dự án Truyền Động Lực Nguồn Mở
+
+Dự án này là một thiết bị truyền động lực nguồn mở mà tôi đã "vibe coded" cho bài tập ở trường. 
+
+## Thư viện yêu cầu
+* `Wire.h`, `EEPROM.h`, `vector`
+* Các thư viện Adafruit (GFX, SH110X) và RTClib.
+* **MakeFont:** Hỗ trợ hiển thị Tiếng Việt.
+
+## Danh sách linh kiện
+* **ESP32 C3 Super Mini** (x1)
+* **Màn hình OLED 1.3 inch** (x1)
+* **Module RTC DS3231** (x1)
+* **Module sạc TP4056** (x1)
+* **Mạch tăng áp HT016 mini** (x1)
+* **Pin Lithium 3.7V** (x1)
+* **Còi chip, Nút nhấn (x5), Công tắc gạt**
+
+## Sơ đồ đấu dây chi tiết
+Vui lòng tham khảo bảng đấu nối ở phần tiếng Anh bên trên để đảm bảo độ chính xác của các chân GPIO.
