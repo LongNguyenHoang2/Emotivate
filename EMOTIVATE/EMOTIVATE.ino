@@ -48,8 +48,10 @@ MakeFont myfont(&setpx);
 #define PIN_LEFT  3
 #define PIN_RIGHT 4
 #define PIN_OK    10
-
-ezButton nL(PIN_UP), nX(PIN_DOWN), nTr(PIN_LEFT), nP(PIN_RIGHT), nOk(PIN_OK);
+#define PIN_VCC   2
+#define PIN_SLP   8
+#define PIN_BZ    7
+ezButton nL(PIN_UP), nX(PIN_DOWN), nTr(PIN_LEFT), nP(PIN_RIGHT), nOk(PIN_OK), nSlp(PIN_SLP);
 
 // --- PROGMEM Data for Messages ---
 // This moves all the constant strings into Flash memory to save RAM.
@@ -61,8 +63,10 @@ struct Msg {
 };
 
 enum State { E_SEL, E_VIEW, ASK, G_SEL, DIFF_SEL, TETRIS, CROSSY, PINGPONG, PAUSE, GAME_OVER, SETTINGS, SUMMARY, CHECK_DANGER, DANGER_WARN,
-             RESET_CONFIRM, SNAKE, DINO, FLAPPY, GADGETS, STOPWATCH, TIMER, DICE, TIMER_ALERT, SET_TIME, GOAL_MENU, ADD_PLAN, CURRENT_PLAN, GOAL_REMINDER, 
-             CRINEMAFT, TANK, DASH, BREAKOUT, MAZE, ZEN_MODE, SET_SCREEN_TIMEOUT, MUSIC_PLAYER };
+             RESET_CONFIRM, SNAKE, DINO, FLAPPY, GADGETS, STOPWATCH, TIMER, DICE, TIMER_ALERT, SET_TIME, GOAL_MENU, ADD_PLAN, CURRENT_PLAN, 
+             GOAL_REMINDER, TANK, DASH, BREAKOUT, MAZE, INVADERS, CATCH, ZEN_MODE, SET_SCREEN_TIMEOUT, MUSIC_PLAYER, 
+             MORSE_MENU, TEXT_TO_MORSE, MORSE_TO_TEXT, DOOM };
+
 State st = E_SEL;
 State returnState = E_SEL; // To know where to return from Settings
 
@@ -75,9 +79,9 @@ unsigned long lastTick = 0;
 // --- Screen Saver Vars ---
 unsigned long lastActivityTime = 0;
 bool screenOn = true;
+bool manualSleep = false;
 bool ignoreUntilAllReleased = false;
 unsigned long screenTimeoutValue = 30000; // Default 30 seconds (30000 ms)
-int petMood = 50; // 0-100, 50 is neutral
 
 // --- Game Vars ---
 int sc = 0, mIdx = 0, highScore = 0, gameChoice = 0;
@@ -99,23 +103,35 @@ int snDirX, snDirY, apX, apY;
 float dY, dV, obsX; int obsW, obsH;
 // --- Flappy Bird Vars ---
 float fbY, fbV;
-int pipeX, pipeH;
-const int pipeW = 8;
+int pipeX, pipeH; 
+const int pipeW = 10;
 const int pipeGap = 28;
 
 // --- New Game Vars ---
-float playerX, playerY, playerA; // CrineMaft
 float tX, tY, tA, bX_t, bY_t, bDX_t, bDY_t; bool bActive; // Player Tank
 float eTX, eTY, eTA, ebX, ebY, ebDX, ebDY; bool eAlive, ebActive; // Enemy Tank
-float dashY, dashV; int dashObsX, dashObsType; // Mini Dash
-float brkX, brkY, brkDX, brkDY, pdX; bool bricks[5][3]; // Breakout
+float dashY, dashV; int dashObsX, dashObsType, dashMode; // Mini Dash: Mode 0:Cube, 1:Ship, 2:Wave
+float brkX, brkY, brkDX, brkDY, pdX; bool bricks[8][4]; // Breakout
 int mzX, mzY; bool maze[16][8]; // Maze
+float invX, invBX, invBY; bool invBAct; float invsX[10], invsY[10]; bool invsA[10]; // Invaders
+float ctX, ctOX, ctOY; // Catch game
+float px_doom, py_doom, pa_doom; // Doom Raycaster
 
-int worldMap[8][8] = {{1,1,1,1,1,1,1,1},{1,0,0,0,0,0,0,1},{1,0,1,0,0,1,0,1},{1,0,1,0,0,0,0,1},{1,0,0,0,1,1,0,1},{1,0,1,0,0,0,0,1},{1,0,0,0,0,0,0,1},{1,1,1,1,1,1,1,1}};
+// --- Morse Vars ---
+String morseBuffer = "";
+String morseInputBuffer = "";
+char morsePicker = 'A';
+unsigned long morseTimer = 0;
+
+int worldMap[12][12] = {
+  {1,1,1,1,1,1,1,1,1,1,1,1},{1,0,0,0,0,0,0,0,0,0,0,1},{1,0,1,1,0,1,1,0,1,1,0,1},{1,0,1,0,0,0,0,0,0,1,0,1},{1,0,0,0,1,0,0,1,0,0,0,1},
+  {1,0,1,0,1,0,0,1,0,1,0,1},{1,0,1,0,0,0,0,0,0,1,0,1},{1,0,0,0,1,1,1,1,0,0,0,1},{1,0,1,0,0,0,0,0,0,1,0,1},{1,0,1,1,0,0,0,0,1,1,0,1},
+  {1,0,0,0,0,0,0,0,0,0,0,1},{1,1,1,1,1,1,1,1,1,1,1,1}
+};
 
 // --- Gadget Vars ---
-unsigned long swStart = 0, swElapsed = 0;
 bool swRun = false;
+unsigned long swStart = 0, swElapsed = 0;
 long tmDuration = 0, tmRem = 0;
 unsigned long tmStart = 0;
 bool tmRun = false;
@@ -163,6 +179,37 @@ Song playlist[] = {
   {"Nyan Cat", nyanNotes, nyanDurs, 24}
 };
 
+// --- Morse Table ---
+const char* const morseAlpha = "ABCDEFGHIJKLMNOPQRSTUVWXYZ ";
+const char* const morseTable[] = {
+  ".-", "-...", "-.-.", "-..", ".", "..-.", "--.", "....", "..", ".---", "-.-", ".-..", "--", "-.", "---", ".--.", "--.-", ".-.", "...", "-", "..-", "...-", ".--", "-..-", "-.--", "--..", "/"
+};
+
+String getMorse(char c) {
+  if (c >= 'a' && c <= 'z') c -= 32;
+  if (c >= 'A' && c <= 'Z') return String(morseTable[c - 'A']);
+  if (c == ' ') return "/";
+  return "";
+}
+
+char fromMorse(String s) {
+  for (int i = 0; i < 27; i++) {
+    if (s == String(morseTable[i])) return morseAlpha[i];
+  }
+  return '?';
+}
+
+void drawRotRect(int cx, int cy, int size, float a) {
+  float s = sin(a), c = cos(a);
+  int x[4], y[4];
+  int vx[] = {-size/2, size/2, size/2, -size/2}, vy[] = {-size/2, -size/2, size/2, size/2};
+  for(int i=0; i<4; i++) {
+    x[i] = cx + (vx[i] * c - vy[i] * s);
+    y[i] = cy + (vx[i] * s + vy[i] * c);
+  }
+  for(int i=0; i<4; i++) display.drawLine(x[i], y[i], x[(i+1)%4], y[(i+1)%4], SH110X_WHITE);
+}
+
 int currentSongIdx = -1;
 int currentNoteIdx = 0;
 unsigned long nextNoteTime = 0;
@@ -177,198 +224,149 @@ bool isMusicPlaying = false;
 // 20-109: Logs (30 entries * 3 bytes: Day(1), Month(1), EmotionID(1))
 // 120: Goal Day, 121: Goal Month, 122: Planned(LSB), 123: Done(LSB), 124: Reminder Day, 125: Planned(MSB), 126: Done(MSB)
 // 11: Games Only Mode (0/1)
-// 114-121: High Scores for CrineMaft, Tank, Dash, Breakout, Maze (Note: Maze HS moved to 128). 130-133: Screen Timeout (unsigned long). 134: Emoti-Pet Mood (byte)
+// 114-121: High Scores for CrineMaft, Tank, Dash, Breakout, Maze (Note: Maze HS moved to 128). 130-133: Screen Timeout (unsigned long).
 
 const Msg mV[] PROGMEM = {
-  // Jokes for Happy
-  {PSTR("Tại sao sách toán lại buồn?"), PSTR("Why was the math book sad?"), PSTR("Vì nó có quá nhiều vấn đề."), PSTR("It had too many problems.")},
-  {PSTR("Tại sao cà chua đỏ mặt?"), PSTR("Why did the tomato turn red?"), PSTR("Vì nó thấy nước sốt salad!"), PSTR("Because it saw the salad dressing!")},
-  {PSTR("Cái gì có cổ mà không có đầu?"), PSTR("What has a neck but no head?"), PSTR("Cái áo."), PSTR("A shirt.")},
-  {PSTR("Con gì đập thì sống, không đập thì chết?"), PSTR("What lives if you beat it, dies if you don't?"), PSTR("Con tim."), PSTR("A heart.")},
-  {PSTR("Tại sao bù nhìn được giải thưởng?"), PSTR("Why did the scarecrow win an award?"), PSTR("Vì nó nổi bật trên cánh đồng!"), PSTR("He was outstanding in his field!")},
-  {PSTR("Gấu không răng gọi là gì?"), PSTR("What do you call a bear with no teeth?"), PSTR("Gấu kẹo dẻo!"), PSTR("A gummy bear!")},
-  {PSTR("Tại sao không nên tin nguyên tử?"), PSTR("Why don't scientists trust atoms?"), PSTR("Vì chúng bịa đặt mọi thứ!"), PSTR("Because they make up everything!")},
-  {PSTR("Cái gì của bạn nhưng người khác dùng?"), PSTR("What belongs to you but others use it more?"), PSTR("Tên của bạn."), PSTR("Your name.")},
-  {PSTR("Sao golf thủ mang 2 cái quần?"), PSTR("Why did the golfer bring two pairs of pants?"), PSTR("Phòng khi bị thủng một lỗ."), PSTR("In case he got a hole in one.")},
-  {PSTR("Con gì càng to càng nhỏ?"), PSTR("What gets bigger the more you take away?"), PSTR("Con cua."), PSTR("A hole.")},
-  {PSTR("Cái gì đen khi bạn mua nó?"), PSTR("What is black when you buy it?"), PSTR("Than."), PSTR("Charcoal.")},
-  {PSTR("Hai người đi bộ vào quán bar..."), PSTR("Two guys walked into a bar..."), PSTR("Người thứ ba cúi xuống né."), PSTR("The third one ducked.")},
-  {PSTR("Cái gì có nhiều chìa khóa mà không mở được cửa?"), PSTR("What has keys but can't open locks?"), PSTR("Đàn Piano."), PSTR("A piano.")},
-  {PSTR("Cái gì bạn không thể giữ được lâu?"), PSTR("What can you hold but not touch?"), PSTR("Hơi thở."), PSTR("Your breath.")},
-  {PSTR("Con gì có chân mà không biết đi?"), PSTR("What has legs but cannot walk?"), PSTR("Cái bàn."), PSTR("A table.")},
-  {PSTR("Tại sao xe đạp lại ngã?"), PSTR("Why did the bicycle fall over?"), PSTR("Vì nó quá mệt (hai bánh)!"), PSTR("Because it was two-tired!")},
-  {PSTR("Mì giả gọi là gì?"), PSTR("What do you call a fake noodle?"), PSTR("Một kẻ mạo danh!"), PSTR("An Impasta!")},
-  {PSTR("Sao trứng không kể chuyện cười?"), PSTR("Why don't eggs tell jokes?"), PSTR("Chúng sẽ làm vỡ bụng nhau mất."), PSTR("They'd crack each other up.")},
-  {PSTR("Khủng long đang ngủ gọi là gì?"), PSTR("What do you call a sleeping dinosaur?"), PSTR("Khủng long ngáy!"), PSTR("A dino-snore!")},
-  {PSTR("Nhà máy sản xuất hàng tạm ổn gọi là gì?"), PSTR("What do you call a factory that makes okay products?"), PSTR("Một sự hài lòng."), PSTR("A satisfactory.")},
-  {PSTR("Heo biết võ gọi là gì?"), PSTR("What do you call a pig that does karate?"), PSTR("Sườn cốt lết."), PSTR("A pork chop.")},
-  {PSTR("Sao không thể đưa bóng bay cho Elsa?"), PSTR("Why can't you give Elsa a balloon?"), PSTR("Vì cô ấy sẽ 'Let it go'."), PSTR("Because she will let it go.")},
-  {PSTR("Làm sao bắt sóc?"), PSTR("How do you catch a squirrel?"), PSTR("Leo lên cây và giả làm hạt dẻ."), PSTR("Climb a tree and act like a nut.")},
-  {PSTR("Người tuyết 6 múi gọi là gì?"), PSTR("What do you call a snowman with a six-pack?"), PSTR("Người tuyết cơ bụng."), PSTR("An abdominal snowman.")},
-  {PSTR("Sao máy tính đi khám bác sĩ?"), PSTR("Why did the computer go to the doctor?"), PSTR("Vì nó bị nhiễm virus."), PSTR("Because it had a virus.")},
-  {PSTR("Cá không mắt gọi là gì?"), PSTR("What do you call a fish without an eye?"), PSTR("Fsh."), PSTR("Fsh.")},
-  {PSTR("Tại sao bờ biển không nói gì?"), PSTR("Why did the beach say nothing?"), PSTR("Nó chỉ vẫy tay chào."), PSTR("It just waved.")},
-  {PSTR("Cái gì có răng mà không cắn?"), PSTR("What has teeth but cannot bite?"), PSTR("Cái lược."), PSTR("A comb.")},
-  {PSTR("Tại sao quyển lịch lại nổi tiếng?"), PSTR("Why is the calendar popular?"), PSTR("Vì nó có nhiều ngày hẹn."), PSTR("Because it has many dates.")}
+  // Universal Jokes & Riddles
+  {PSTR("Tại sao sách toán lại buồn?"), PSTR("Why was the math book sad?"), PSTR("Vì nó có quá nhiều vấn đề."), PSTR("Because it had too many problems.")},
+  {PSTR("Cái gì có cổ mà không có đầu?"), PSTR("What has a neck but no head?"), PSTR("Đó chính là chiếc áo sơ mi."), PSTR("It is a shirt.")},
+  {PSTR("Cái gì càng lau lại càng bẩn?"), PSTR("What gets dirtier the more you wipe?"), PSTR("Đó là chiếc khăn lau bụi."), PSTR("A duster or a rag.")},
+  {PSTR("Cái gì có nhiều răng nhưng không cắn?"), PSTR("What has many teeth but never bites?"), PSTR("Đó là chiếc lược của bạn."), PSTR("It is your comb.")},
+  {PSTR("Cái gì luôn đi đến mà không bao giờ tới?"), PSTR("What is always coming but never arrives?"), PSTR("Đó là ngày mai."), PSTR("Tomorrow.")},
+  {PSTR("Thứ gì luôn ở trước mặt nhưng ta không nhìn thấy?"), PSTR("What is always in front of you but invisible?"), PSTR("Đó chính là tương lai."), PSTR("The future.")},
+  {PSTR("Cái gì có thể đi khắp thế giới mà chỉ ở một góc?"), PSTR("What can travel the world while staying in a corner?"), PSTR("Một con tem bưu điện."), PSTR("A postage stamp.")},
+  {PSTR("Tại sao xe đạp không tự đứng được?"), PSTR("Why can't a bicycle stand on its own?"), PSTR("Vì nó quá 'mệt' (two-tired)."), PSTR("Because it's two-tired.")},
+  {PSTR("Cái gì có cánh mà không biết bay?"), PSTR("What has wings but cannot fly?"), PSTR("Đó là một tòa nhà."), PSTR("A building (wings of a building).")},
+  {PSTR("Cái gì càng tối lại càng thấy rõ?"), PSTR("What is seen more clearly the darker it gets?"), PSTR("Đó là những vì sao."), PSTR("The stars.")},
+  {PSTR("Con gì đập thì sống, không đập thì chết?"), PSTR("What lives if you beat it, and dies if you stop?"), PSTR("Đó là trái tim."), PSTR("A heart.")},
+  {PSTR("Cái gì của bạn nhưng người khác dùng nhiều hơn?"), PSTR("What belongs to you but others use it more?"), PSTR("Chính là tên của bạn."), PSTR("Your name.")},
+  {PSTR("Cái gì đi lên mà không bao giờ đi xuống?"), PSTR("What goes up but never comes down?"), PSTR("Đó là số tuổi của bạn."), PSTR("Your age.")},
+  {PSTR("Gấu không răng gọi là gì?"), PSTR("What do you call a bear with no teeth?"), PSTR("Gấu kẹo dẻo (Gummy bear)!"), PSTR("A gummy bear!")},
+  {PSTR("Cái gì có một mắt nhưng không thể nhìn thấy?"), PSTR("What has one eye but cannot see?"), PSTR("Đó chính là cây kim khâu."), PSTR("It is a sewing needle.")},
+  {PSTR("Cái gì bắt đầu bằng chữ T, kết thúc bằng chữ T và bên trong chứa đầy T?"), PSTR("What starts with T, ends with T, and has T in it?"), PSTR("Đó là một chiếc ấm trà (Teapot)."), PSTR("It is a teapot.")},
+  {PSTR("Cái gì có thể đi lên ống khói khi đóng, nhưng không thể xuống ống khói khi mở?"), PSTR("What can go up a chimney down but not down a chimney up?"), PSTR("Đó chính là một chiếc ô."), PSTR("An umbrella.")},
+  {PSTR("Tôi có lỗ ở trên, ở dưới, ở trái và ở phải. Tôi là ai?"), PSTR("I have holes in my top and bottom, my left and right. What am I?"), PSTR("Tôi là một miếng bọt biển."), PSTR("A sponge.")},
+  {PSTR("Cái gì của bạn nhưng bạn lại không bao giờ dùng tới?"), PSTR("What is yours but you never use it?"), PSTR("Đó là cái bóng của chính bạn."), PSTR("Your shadow.")}
 };
 const Msg mB[] PROGMEM = {
-  // Sad - Quotes + Advice
-  {PSTR("Lối thoát tốt nhất là đi xuyên qua nó."), PSTR("\"The best way out is always through.\""), PSTR("LK: Hãy tiếp tục, đừng dừng lại."), PSTR("Advice: Keep going, don't stop.")},
-  {PSTR("Chuyện này rồi cũng sẽ qua."), PSTR("\"This too shall pass.\""), PSTR("LK: Kiên nhẫn là sức mạnh."), PSTR("Advice: Patience is your strength.")},
-  {PSTR("Biến vết thương thành trí tuệ."), PSTR("\"Turn your wounds into wisdom.\""), PSTR("LK: Học hỏi từ nỗi đau này."), PSTR("Advice: Learn from this pain.")},
-  {PSTR("Sao không thể tỏa sáng thiếu bóng tối."), PSTR("\"Stars can't shine without darkness.\""), PSTR("LK: Ánh sáng sẽ trở lại."), PSTR("Advice: Your light will return.")},
-  {PSTR("Thời khắc khó khăn không kéo dài mãi."), PSTR("\"Tough times never last, but tough people do.\""), PSTR("LK: Bạn mạnh mẽ hơn bạn nghĩ."), PSTR("Advice: You are stronger than you think.")},
-  {PSTR("Nỗi buồn bay đi trên đôi cánh thời gian."), PSTR("\"Sadness flies away on the wings of time.\""), PSTR("LK: Hãy cho thời gian."), PSTR("Advice: Give it time.")},
-  {PSTR("Đừng khóc vì nó kết thúc, hãy cười vì nó đã xảy ra."), PSTR("\"Don't cry because it's over, smile because it happened.\""), PSTR("LK: Trân trọng kỷ niệm."), PSTR("Advice: Cherish the memories.")},
-  {PSTR("Mỗi cuộc đời đều có nỗi buồn."), PSTR("\"Every life has a measure of sorrow.\""), PSTR("LK: Bạn không cô đơn."), PSTR("Advice: You are sharing the human experience.")},
-  {PSTR("Hạnh phúc là hướng đi, không phải đích đến."), PSTR("Happiness is a direction, not a destination."), PSTR("LK: Tìm niềm vui trên hành trình."), PSTR("Advice: Find joy in the journey.")},
-  {PSTR("Sau cơn mưa trời lại sáng."), PSTR("After the rain comes the sun."), PSTR("LK: Mọi thứ sẽ tốt đẹp hơn."), PSTR("Advice: Things will get better.")},
-  {PSTR("Đừng đếm những gì bạn đã mất."), PSTR("Don't count what you have lost."), PSTR("LK: Hãy quý trọng những gì đang có."), PSTR("Advice: Cherish what you have.")},
-  {PSTR("Nỗi buồn chỉ là bức tường giữa hai khu vườn."), PSTR("Sadness is but a wall between two gardens."), PSTR("LK: Hạnh phúc ở phía bên kia."), PSTR("Advice: Happiness is on the other side.")},
-  {PSTR("Nước mắt đến từ tim, không phải từ não."), PSTR("Tears come from the heart, not the brain."), PSTR("LK: Để trái tim lên tiếng."), PSTR("Advice: Let your heart speak.")},
-  {PSTR("Ai cũng có nỗi buồn thầm kín."), PSTR("Every man has his secret sorrows."), PSTR("LK: Hãy tử tế với mọi người."), PSTR("Advice: Be kind to everyone.")},
-  {PSTR("Thời gian chữa lành tất cả."), PSTR("Time heals all wounds."), PSTR("LK: Hãy kiên nhẫn với chính mình."), PSTR("Advice: Be patient with yourself.")},
-  {PSTR("Đau buồn là giá phải trả cho tình yêu."), PSTR("Grief is the price we pay for love."), PSTR("LK: Tình yêu luôn xứng đáng."), PSTR("Advice: Love is worth it.")},
-  {PSTR("Trái tim nặng trĩu sẽ nhẹ hơn khi mưa xuống."), PSTR("Heavy hearts are relieved by letting water."), PSTR("LK: Hãy khóc nếu cần."), PSTR("Advice: Cry if you need to.")},
-  {PSTR("Không ổn cũng không sao cả."), PSTR("It's okay not to be okay."), PSTR("LK: Chấp nhận cảm xúc của bạn."), PSTR("Advice: Accept your feelings.")},
-  {PSTR("Chỉ là một ngày tệ, không phải cả đời."), PSTR("Just a bad day, not a bad life."), PSTR("LK: Ngày mai là khởi đầu mới."), PSTR("Advice: Tomorrow is new.")},
-  {PSTR("Bạn không đơn độc."), PSTR("You are not alone in this."), PSTR("LK: Hãy chia sẻ với ai đó."), PSTR("Advice: Reach out to someone.")},
-  {PSTR("Để nó đau, rồi để nó đi."), PSTR("Let it hurt, then let it go."), PSTR("LK: Buông bỏ nỗi đau."), PSTR("Advice: Release the pain.")},
-  {PSTR("Đừng sợ bóng tối, đó là nơi sao sáng nhất."), PSTR("Don't fear dark, stars shine there."), PSTR("LK: Tìm ánh sáng của bạn."), PSTR("Advice: Find your light.")},
-  {PSTR("Mọi kết thúc là một khởi đầu mới."), PSTR("Every end is a new beginning."), PSTR("LK: Hãy bắt đầu lại."), PSTR("Advice: Start again.")},
-  {PSTR("Bạn đủ mạnh mẽ để vượt qua."), PSTR("You are strong enough to get through."), PSTR("LK: Tin vào sức mạnh của bạn."), PSTR("Advice: Trust your strength.")}
+  // Sad - Deep & Comforting
+  {PSTR("Dù thế giới có vội vã, bạn vẫn có quyền bước chậm lại."), PSTR("Even if the world is rushing, you have the right to walk slowly."), PSTR("Hãy tử tế với chính mình hôm nay."), PSTR("Be kind to yourself today.")},
+  {PSTR("Nỗi buồn chỉ là một cơn mưa giúp tâm hồn nảy mầm."), PSTR("Sadness is just rain that helps the soul bloom."), PSTR("Đừng sợ ướt át, hạt mầm đang lớn lên."), PSTR("Don't fear the damp; the seeds are growing.")},
+  {PSTR("Đừng đếm những gì đã mất, hãy trân trọng những gì còn lại."), PSTR("Don't count what you lost; cherish what's still here."), PSTR("Bạn vẫn còn nhiều điều tuyệt vời."), PSTR("You still have many wonderful things.")},
+  {PSTR("Những ngôi sao tỏa sáng nhất trong đêm tối nhất."), PSTR("The stars shine brightest in the darkest nights."), PSTR("Đừng ghét bóng tối, nó làm hiện rõ ánh sáng."), PSTR("Don't hate the dark; it reveals the light.")},
+  {PSTR("Lối thoát duy nhất là đi xuyên qua nó."), PSTR("The only way out is through."), PSTR("Đừng sợ hãi, hãy cứ bước tiếp."), PSTR("Don't fear, just keep stepping.")},
+  {PSTR("Thời gian không chữa lành, nó dạy ta cách sống chung."), PSTR("Time doesn't heal; it teaches us how to live with it."), PSTR("Bạn đang mạnh mẽ hơn mỗi ngày."), PSTR("You are growing stronger every day.")},
+  {PSTR("Đôi khi bạn phải buông tay để thấy mình được tự do."), PSTR("Sometimes you have to let go to see that you are free."), PSTR("Buông bỏ không phải là mất mát."), PSTR("Letting go is not losing.")},
+  {PSTR("Hoa nở không phải để khoe sắc, mà để hoàn thiện chính mình."), PSTR("Flowers bloom not to show off, but to fulfill themselves."), PSTR("Hãy cứ là chính bạn, dù âm thầm."), PSTR("Just be yourself, even in silence.")},
+  {PSTR("Nỗi buồn là cái giá ta trả cho những gì ta từng yêu."), PSTR("Sadness is the price we pay for what we once loved."), PSTR("Tình yêu đó vẫn luôn xứng đáng."), PSTR("That love was always worth it.")},
+  {PSTR("Đừng để nỗi buồn của hôm qua làm mờ đi nắng hôm nay."), PSTR("Don't let yesterday's sadness blur today's sun."), PSTR("Mở cửa sổ tâm hồn ra nhé."), PSTR("Open the window of your soul.")},
+  {PSTR("Bình yên không phải là không có bão, mà là lặng lẽ giữa cơn bão."), PSTR("Peace is not the absence of storms, but being calm within them."), PSTR("Tìm một khoảng lặng bên trong bạn."), PSTR("Find a quiet space inside you.")},
+  {PSTR("Mỗi vết sẹo đều kể một câu chuyện về sự sống sót."), PSTR("Every scar tells a story of survival."), PSTR("Bạn là một chiến binh dũng cảm."), PSTR("You are a brave survivor.")},
+  {PSTR("Có những ngày ta chỉ cần tồn tại thôi đã là một kỳ tích."), PSTR("Some days, just existing is a miracle."), PSTR("Cảm ơn bạn vì đã không bỏ cuộc."), PSTR("Thank you for not giving up.")},
+  {PSTR("Đừng để một chương tồi tệ làm bạn muốn kết thúc cuốn sách."), PSTR("Don't let a bad chapter make you want to end the book."), PSTR("Vẫn còn rất nhiều trang đẹp phía trước."), PSTR("There are still many beautiful pages ahead.")},
+  {PSTR("Nỗi buồn là một phần của hành trình trưởng thành."), PSTR("Sadness is a part of the growth journey."), PSTR("Hãy cứ bước đi, dù là từng bước nhỏ."), PSTR("Just keep walking, even in small steps.")},
+  {PSTR("Bạn không cần phải lúc nào cũng tỏ ra mạnh mẽ."), PSTR("You don't always have to be strong."), PSTR("Yếu lòng một chút cũng không sao."), PSTR("It's okay to be weak sometimes.")},
+  {PSTR("Nỗi đau hôm nay sẽ trở thành sức mạnh cho ngày mai."), PSTR("Today's pain will become tomorrow's strength."), PSTR("Hãy tin vào khả năng phục hồi của mình."), PSTR("Believe in your resilience.")},
+  {PSTR("Mọi vết thương rồi sẽ được chữa lành bởi thời gian."), PSTR("Every wound will be healed by time."), PSTR("Hãy kiên nhẫn với bản thân mình."), PSTR("Be patient with yourself.")}
 };
 const Msg mK[] PROGMEM = {
-  // Crying - Quotes + Advice
-  {PSTR("Nước mắt là những lời cần được viết ra."), PSTR("\"Tears are words that need to be written.\""), PSTR("LK: Hãy bày tỏ cảm xúc của bạn."), PSTR("Advice: Express your feelings.")},
-  {PSTR("Đừng xin lỗi vì đã khóc."), PSTR("\"Do not apologize for crying.\""), PSTR("LK: Khóc là điều rất con người."), PSTR("Advice: It's okay to be human.")},
-  {PSTR("Khóc là sự rửa sạch tâm hồn."), PSTR("\"Crying is cleansing.\""), PSTR("LK: Hãy xả hết nỗi đau."), PSTR("Advice: Let it all out.")},
-  {PSTR("Nước mắt đến từ trái tim."), PSTR("\"Tears come from the heart.\""), PSTR("LK: Hãy cảm nhận cảm xúc."), PSTR("Advice: Feel your emotions fully.")},
-  {PSTR("Khóc không phải là yếu đuối."), PSTR("Crying is not weakness."), PSTR("LK: Đó là dấu hiệu bạn đã mạnh mẽ quá lâu."), PSTR("Advice: Sign you've been strong too long.")},
-  {PSTR("Nước mắt là ngôn ngữ câm lặng của nỗi đau."), PSTR("\"Tears are the silent language of grief.\""), PSTR("LK: Hãy để chúng lên tiếng."), PSTR("Advice: Let them speak.")},
-  {PSTR("Để trái tim nhẹ nhõm hơn."), PSTR("To make the heart lighter."), PSTR("LK: Khóc sẽ giúp bạn thấy khá hơn."), PSTR("Advice: You will feel lighter.")},
-  {PSTR("Nước mắt vô hình là khó lau nhất."), PSTR("Invisible tears are the hardest to wipe."), PSTR("LK: Hãy chia sẻ với ai đó."), PSTR("Advice: Share your pain with someone.")},
-  {PSTR("Sau cơn mưa, cầu vồng sẽ xuất hiện."), PSTR("Rainbows appear after the rain."), PSTR("LK: Niềm vui sẽ trở lại."), PSTR("Advice: Joy will return.")},
-  {PSTR("Nước mắt là lời trái tim không thể nói."), PSTR("Tears are words the heart can't say."), PSTR("LK: Để chúng lên tiếng."), PSTR("Advice: Let them speak.")},
-  {PSTR("Khóc là cách mắt nói khi miệng không thể."), PSTR("Crying is how eyes speak when mouth can't."), PSTR("LK: Yếu đuối cũng không sao."), PSTR("Advice: It's okay to break.")},
-  {PSTR("Ai không biết khóc sẽ không biết cười."), PSTR("Who doesn't weep, cannot laugh."), PSTR("LK: Cảm nhận sâu sắc."), PSTR("Advice: Feel deeply.")},
-  {PSTR("Nước mắt là van an toàn của trái tim."), PSTR("Tears are the safety valve of the heart."), PSTR("LK: Giải tỏa áp lực."), PSTR("Advice: Release the pressure.")},
-  {PSTR("Xà phòng cho cơ thể, nước mắt cho tâm hồn."), PSTR("Soap for body, tears for soul."), PSTR("LK: Rửa sạch tâm hồn."), PSTR("Advice: Cleanse your soul.")},
-  {PSTR("Khóc hết nước mắt để nhường chỗ cho nụ cười."), PSTR("Cry out tears to make room for smiles."), PSTR("LK: Nụ cười sẽ đến."), PSTR("Advice: Smiles will come.")},
-  {PSTR("Thuốc chữa lành là nước mặn: mồ hôi, nước mắt."), PSTR("Cure is salt water: sweat, tears, sea."), PSTR("LK: Để nó chữa lành bạn."), PSTR("Advice: Let it heal you.")},
-  {PSTR("Khóc. Tha thứ. Học hỏi. Tiếp tục."), PSTR("Cry. Forgive. Learn. Move on."), PSTR("LK: Con đường phía trước."), PSTR("Advice: The path forward.")},
-  {PSTR("Nước mắt chỉ là sự giải tỏa tạm thời."), PSTR("Your tears are just a temporary release."), PSTR("LK: Bình yên sẽ theo sau."), PSTR("Advice: Peace will follow.")},
-  {PSTR("Ngay cả bầu trời cũng có lúc khóc."), PSTR("Even the sky cries sometimes."), PSTR("LK: Đó là lẽ tự nhiên."), PSTR("Advice: It's natural.")},
-  {PSTR("Để nước mắt tưới tẩm hạt giống hạnh phúc."), PSTR("Let tears water seeds of happiness."), PSTR("LK: Lớn lên từ nỗi buồn."), PSTR("Advice: Grow from sadness.")},
-  {PSTR("Một trận khóc làm nhẹ lòng."), PSTR("A good cry lightens the heart."), PSTR("LK: Cảm nhận sự nhẹ nhõm."), PSTR("Advice: Feel the relief.")},
-  {PSTR("Đừng giấu nước mắt."), PSTR("Don't hide your tears."), PSTR("LK: Sống thật với cảm xúc."), PSTR("Advice: Be true to feelings.")}
+  // Crying - Validating & Gentle
+  {PSTR("Nước mắt là ngôn ngữ thầm lặng của một trái tim đã quá mạnh mẽ."), PSTR("Tears are the silent language of a heart that's been too strong."), PSTR("Hãy cứ khóc, bạn không cần phải gồng mình."), PSTR("It's okay to cry; you don't have to be tough.")},
+  {PSTR("Bầu trời cũng có lúc đổ mưa để trở nên trong xanh hơn."), PSTR("Even the sky needs to rain to become clearer."), PSTR("Sau trận khóc này, lòng bạn sẽ nhẹ nhõm."), PSTR("After this, your heart will feel lighter.")},
+  {PSTR("Đừng xin lỗi vì đã khóc. Đó là cách tâm hồn hít thở."), PSTR("Don't apologize for crying. It's how the soul breathes."), PSTR("Cứ để dòng lệ cuốn trôi gánh nặng."), PSTR("Let the tears carry away the burden.")},
+  {PSTR("Khóc không phải yếu đuối, đó là sự can đảm để đối diện nỗi đau."), PSTR("Crying isn't weakness; it's courage to face the pain."), PSTR("Bạn rất dũng cảm khi sống thật với mình."), PSTR("You are brave for being true to yourself.")},
+  {PSTR("Nước mắt là những lời mà miệng không thể thốt ra."), PSTR("Tears are words that the mouth cannot speak."), PSTR("Hãy để đôi mắt kể câu chuyện của bạn."), PSTR("Let your eyes tell your story.")},
+  {PSTR("Khi trái tim quá đầy, nó sẽ tràn ra qua đôi mắt."), PSTR("When the heart is too full, it overflows through the eyes."), PSTR("Đó là một sự giải thoát cần thiết."), PSTR("It is a necessary release.")},
+  {PSTR("Mỗi giọt nước mắt rơi xuống là một viên gạch xây nên sự kiên cường."), PSTR("Every tear that falls is a brick building your resilience."), PSTR("Bạn đang xây dựng một tôi mạnh mẽ hơn."), PSTR("You are building a stronger you.")},
+  {PSTR("Khóc là để rửa sạch tâm hồn cho những niềm vui mới."), PSTR("Crying is cleansing the soul for new joys."), PSTR("Lau khô mắt và chờ đón điều tốt đẹp."), PSTR("Wipe your eyes and wait for good things.")},
+  {PSTR("Đừng kìm nén, sự u uất lâu ngày sẽ làm bạn héo mòn."), PSTR("Don't suppress it; long-held gloom will wither you."), PSTR("Hãy cứ là một dòng sông tuôn chảy."), PSTR("Just be a flowing river.")},
+  {PSTR("Khóc xong rồi nhớ uống thêm chút nước nhé."), PSTR("Remember to drink some water after crying."), PSTR("Hãy chăm sóc cơ thể nhỏ bé của bạn."), PSTR("Take care of your little body.")},
+  {PSTR("Bạn không cần phải hoàn hảo, bạn chỉ cần là chính mình."), PSTR("You don't have to be perfect; you just have to be you."), PSTR("Và chính mình thì có lúc phải khóc."), PSTR("And 'you' sometimes needs to cry.")},
+  {PSTR("Khóc là cách trái tim tìm thấy sự cân bằng."), PSTR("Crying is the heart's way of finding balance."), PSTR("Đừng kìm nén những giọt lệ chân thành."), PSTR("Don't suppress sincere tears.")},
+  {PSTR("Nước mắt không làm bạn yếu đi, nó làm bạn nhẹ lòng hơn."), PSTR("Tears don't make you weaker; they make you lighter."), PSTR("Hãy để mọi muộn phiền trôi đi."), PSTR("Let all your sorrows flow away.")},
+  {PSTR("Sau mỗi trận mưa, cỏ cây sẽ xanh tốt hơn."), PSTR("After every rain, the grass grows greener."), PSTR("Bạn cũng sẽ trở nên rạng rỡ hơn."), PSTR("You too will become more radiant.")},
+  {PSTR("Khóc là ngôn ngữ của những điều không thể nói bằng lời."), PSTR("Crying is the language of things that cannot be said."), PSTR("Trái tim bạn đang được lắng nghe."), PSTR("Your heart is being heard.")},
+  {PSTR("Hãy để những giọt nước mắt tưới mát tâm hồn khô héo."), PSTR("Let your tears water a parched soul."), PSTR("Niềm hy vọng mới sẽ nảy mầm."), PSTR("New hope will sprout.")}
 };
 const Msg mTv[] PROGMEM = {
-  // Despair - Quotes + Advice
-  {PSTR("Trời tối nhất là trước khi bình minh."), PSTR("\"It is always darkest just before dawn.\""), PSTR("LK: Hy vọng đang ở rất gần."), PSTR("Advice: Hope is near.")},
-  {PSTR("Ngã 7 lần, đứng dậy 8 lần."), PSTR("\"Fall seven times, stand up eight.\""), PSTR("LK: Kiên trì là chìa khóa."), PSTR("Advice: Persistence is key.")},
-  {PSTR("Khi muốn bỏ cuộc, nhớ lý do bắt đầu."), PSTR("When you want to quit, remember why you started."), PSTR("LK: Đừng bỏ cuộc ngay lúc này."), PSTR("Advice: Don't give up yet.")},
-  {PSTR("Vinh quang là đứng dậy sau mỗi lần ngã."), PSTR("Glory is rising every time we fall."), PSTR("LK: Hãy đứng dậy lần nữa."), PSTR("Advice: Rise again.")},
-  {PSTR("Tin rằng bạn có thể là bạn đã thành công một nửa."), PSTR("\"Believe you can and you're halfway there.\""), PSTR("LK: Hãy tin vào chính mình."), PSTR("Advice: Trust yourself.")},
-  {PSTR("Hy vọng là ánh sáng trong bóng tối."), PSTR("Hope is the light in darkness."), PSTR("LK: Hãy tìm kiếm ánh sáng đó."), PSTR("Advice: Look for the light.")},
-  {PSTR("Đáy vực là nền tảng để xây dựng lại."), PSTR("Rock bottom is the foundation to rebuild."), PSTR("LK: Xây dựng lại từ đây."), PSTR("Advice: Build up from here.")},
-  {PSTR("Chậm cũng được, miễn là đừng dừng lại."), PSTR("Slow is fine, as long as you don't stop."), PSTR("LK: Tiếp tục tiến bước."), PSTR("Advice: Keep moving forward.")},
-  {PSTR("Không bao giờ là quá muộn."), PSTR("It is never too late."), PSTR("LK: Bạn luôn có thể bắt đầu lại."), PSTR("Advice: You can always restart.")},
-  {PSTR("Trong cái khó ló cái khôn."), PSTR("Necessity is the mother of invention."), PSTR("LK: Tìm giải pháp mới."), PSTR("Advice: Find a new solution.")},
-  {PSTR("Khi ở cuối sợi dây, hãy thắt nút và bám chặt."), PSTR("When at end of rope, tie a knot and hang on."), PSTR("LK: Đừng buông tay."), PSTR("Advice: Don't let go.")},
-  {PSTR("Chấp nhận thất vọng, đừng mất hy vọng."), PSTR("Accept disappointment, never lose hope."), PSTR("LK: Giữ vững hy vọng."), PSTR("Advice: Keep hoping.")},
-  {PSTR("Chỉ trong bóng tối mới thấy được sao."), PSTR("Only in darkness can you see stars."), PSTR("LK: Hãy nhìn lên."), PSTR("Advice: Look up.")},
-  {PSTR("Không có tuyệt vọng nào là mãi mãi."), PSTR("No despair is forever."), PSTR("LK: Bạn sẽ vượt qua."), PSTR("Advice: You will survive.")},
-  {PSTR("Hành động là thuốc giải cho tuyệt vọng."), PSTR("Action is the antidote to despair."), PSTR("LK: Làm việc nhỏ gì đó."), PSTR("Advice: Do something small.")},
-  {PSTR("Từ khó khăn phép màu sẽ đến."), PSTR("Out of difficulties grow miracles."), PSTR("LK: Chờ đợi phép màu."), PSTR("Advice: Wait for it.")},
-  {PSTR("Can đảm là đi tiếp khi không còn sức."), PSTR("Courage is going on without strength."), PSTR("LK: Tiếp tục đi."), PSTR("Advice: Keep going.")},
-  {PSTR("Giờ đen tối nhất cũng chỉ có 60 phút."), PSTR("Darkest hour has only 60 minutes."), PSTR("LK: Nó sẽ qua."), PSTR("Advice: It will pass.")},
-  {PSTR("Khi mặt trời lặn, sao sẽ mọc."), PSTR("When sun goes down, stars come out."), PSTR("LK: Tìm những vì sao."), PSTR("Advice: Look for stars.")},
-  {PSTR("Mỗi bức tường đều là một cánh cửa."), PSTR("Every wall is a door."), PSTR("LK: Tìm tay nắm cửa."), PSTR("Advice: Find the handle.")},
-  {PSTR("Bạn mạnh mẽ hơn bạn biết."), PSTR("You are stronger than you know."), PSTR("LK: Tin vào chính mình."), PSTR("Advice: Trust yourself.")},
-  {PSTR("Đừng để hôm qua chiếm quá nhiều hôm nay."), PSTR("Don't let yesterday take up too much of today."), PSTR("LK: Sống cho hiện tại."), PSTR("Advice: Live for today.")},
-  {PSTR("Khó khăn sinh ra người mạnh mẽ."), PSTR("Hard times create strong men."), PSTR("LK: Bạn đang mạnh mẽ lên."), PSTR("Advice: You are growing strong.")},
-  {PSTR("Con đường dài nhất bắt đầu bằng một bước."), PSTR("Longest journey starts with a step."), PSTR("LK: Bước bước đầu tiên."), PSTR("Advice: Take the first step.")}
+  // Despair - Powerful & Empowering
+  {PSTR("Trời tối nhất là ngay trước lúc bình minh."), PSTR("It's always darkest just before the dawn."), PSTR("Hy vọng đang ở rất gần bạn."), PSTR("Hope is closer than you think.")},
+  {PSTR("Khi bạn chạm đáy, con đường duy nhất là đi lên."), PSTR("When you hit rock bottom, the only way is up."), PSTR("Đừng bỏ cuộc, hãy bắt đầu lại từ đây."), PSTR("Don't give up; rebuild from here.")},
+  {PSTR("Bạn không cần thấy cả cầu thang, chỉ cần bước bước đầu tiên."), PSTR("You don't have to see the whole staircase, just take the first step."), PSTR("Hãy tin vào đôi chân của mình."), PSTR("Trust your own feet.")},
+  {PSTR("Ngay cả trong tro tàn, sự sống vẫn có thể bắt đầu."), PSTR("Even in ashes, life can begin again."), PSTR("Mọi kết thúc đều là một khởi đầu mới."), PSTR("Every end is a new beginning.")},
+  {PSTR("Nghịch cảnh không phải để quật ngã, mà để rèn giũa bạn."), PSTR("Adversity is not to strike you down, but to forge you."), PSTR("Bạn là thanh kiếm thép quý giá."), PSTR("You are a precious steel sword.")},
+  {PSTR("Dù không ai tin tưởng, bạn vẫn phải tin vào chính mình."), PSTR("Even if no one believes, you must believe in yourself."), PSTR("Ngọn lửa bên trong bạn mạnh hơn bão tố."), PSTR("The fire inside you is stronger than the storm.")},
+  {PSTR("Mỗi thất bại là một bài học đắt giá cho sự thành công."), PSTR("Every failure is a costly lesson for success."), PSTR("Bạn không thua, bạn chỉ đang học thôi."), PSTR("You didn't lose; you are just learning.")},
+  {PSTR("Thế giới có thể quay lưng, nhưng bản thân bạn thì không."), PSTR("The world may turn its back, but you must not."), PSTR("Hãy là người bạn tốt nhất của chính mình."), PSTR("Be your own best friend.")},
+  {PSTR("Giấc mơ bị trì hoãn không có nghĩa là giấc mơ bị từ chối."), PSTR("A dream deferred is not a dream denied."), PSTR("Hãy kiên trì thêm một chút nữa thôi."), PSTR("Just persevere a little bit more.")},
+  {PSTR("Bạn được sinh ra với đôi cánh, đừng bò qua cuộc đời."), PSTR("You were born with wings; don't crawl through life."), PSTR("Hãy đứng dậy và thử dang rộng cánh."), PSTR("Stand up and try to spread your wings.")},
+  {PSTR("Những điều vĩ đại thường bắt đầu từ những việc nhỏ bé."), PSTR("Great things often start from small things."), PSTR("Đừng coi thường sự nỗ lực âm thầm."), PSTR("Don't despise your silent efforts.")},
+  {PSTR("Bạn là người duy nhất có chìa khóa cho hạnh phúc của mình."), PSTR("You are the only one with the key to your happiness."), PSTR("Don't give that key to anyone else."), PSTR("Đừng đưa nó cho bất kỳ ai khác cầm.")},
+  {PSTR("Khi bạn cảm thấy muốn bỏ cuộc, hãy nhớ lý do bạn bắt đầu."), PSTR("When you feel like quitting, remember why you started."), PSTR("Mục tiêu của bạn vẫn đang chờ phía trước."), PSTR("Your goal is still waiting ahead.")},
+  {PSTR("Chỉ cần bạn không dừng lại, việc đi chậm bao nhiêu không quan trọng."), PSTR("It doesn't matter how slowly you go as long as you don't stop."), PSTR("Kiên trì là chìa khóa của thành công."), PSTR("Persistence is the key to success.")},
+  {PSTR("Đừng để những khó khăn hôm nay làm lu mờ ước mơ mai sau."), PSTR("Don't let today's difficulties overshadow tomorrow's dreams."), PSTR("Hãy vững tin vào con đường mình chọn."), PSTR("Believe firmly in your chosen path.")},
+  {PSTR("Bạn sinh ra để tỏa sáng, không phải để tan biến."), PSTR("You were born to shine, not to fade away."), PSTR("Sức mạnh của bạn nằm ở bên trong."), PSTR("Your strength lies within.")},
+  {PSTR("Mỗi ngày mới là một cơ hội để thay đổi tất cả."), PSTR("Every new day is a chance to change everything."), PSTR("Hãy nắm bắt lấy nó bằng cả trái tim."), PSTR("Seize it with all your heart.")}
 };
 const Msg mTg[] PROGMEM = {
-  // Angry - Quotes + Advice
-  {PSTR("Mỗi phút tức giận mất 60s hạnh phúc."), PSTR("Every minute angry loses 60s of happiness."), PSTR("LK: Chọn hạnh phúc thay vì giận dữ."), PSTR("Advice: Choose happiness instead.")},
-  {PSTR("Giận quá mất khôn."), PSTR("Anger is one letter short of danger."), PSTR("LK: Hạ hỏa trước khi hành động."), PSTR("Advice: Cool down before you act.")},
-  {PSTR("Lời nói khi giận là lời hối tiếc nhất."), PSTR("Angry words are the most regretted."), PSTR("LK: Im lặng là vàng."), PSTR("Advice: Silence is golden now.")},
-  {PSTR("Giữ giận dữ như uống thuốc độc."), PSTR("Holding anger is like drinking poison."), PSTR("LK: Hãy buông bỏ nó."), PSTR("Advice: Let it go.")},
-  {PSTR("Người chiến binh giỏi nhất không bao giờ giận."), PSTR("\"The best fighter is never angry.\""), PSTR("LK: Bình tĩnh để chiến thắng."), PSTR("Advice: Stay calm to win.")},
-  {PSTR("Giận dữ làm hại bạn nhiều hơn."), PSTR("Anger hurts you more than others."), PSTR("LK: Đừng tự làm đau mình."), PSTR("Advice: Don't hurt yourself.")},
-  {PSTR("Khi giận dữ, hãy im lặng."), PSTR("When you are angry, be silent."), PSTR("LK: Hít thở thật sâu."), PSTR("Advice: Take a deep breath.")},
-  {PSTR("Ai làm bạn giận, kẻ đó điều khiển bạn."), PSTR("He who angers you conquers you."), PSTR("LK: Lấy lại quyền kiểm soát."), PSTR("Advice: Reclaim your power.")},
-  {PSTR("Một phút kiên nhẫn tránh trăm ngày hối tiếc."), PSTR("Patience saves 100 days of regret."), PSTR("LK: Hãy kiên nhẫn."), PSTR("Advice: Be patient now.")},
-  {PSTR("Tha thứ là vindicta tốt nhất."), PSTR("Forgiveness is the best revenge."), PSTR("LK: Tha thứ để bình yên."), PSTR("Advice: Forgive to find peace.")},
-  {PSTR("Giận dữ là axit ăn mòn vật chứa nó."), PSTR("Anger is acid that harms the vessel."), PSTR("LK: Đừng giữ nó."), PSTR("Advice: Don't hold it.")},
-  {PSTR("Giữ cục than hồng để ném người khác, bạn sẽ bỏng."), PSTR("Holding hot coal burns you."), PSTR("LK: Buông cục than xuống."), PSTR("Advice: Drop the coal.")},
-  {PSTR("Giận dữ chỉ ở trong lòng kẻ khờ."), PSTR("Anger dwells in the bosom of fools."), PSTR("LK: Hãy khôn ngoan."), PSTR("Advice: Be wise.")},
-  {PSTR("Khi giận, đếm đến 10."), PSTR("When angry, count to ten."), PSTR("LK: Đếm ngay đi."), PSTR("Advice: Count now.")},
-  {PSTR("Giận dữ thổi tắt ngọn đèn trí tuệ."), PSTR("Anger blows out the lamp of the mind."), PSTR("LK: Bảo vệ ánh sáng."), PSTR("Advice: Protect your light.")},
-  {PSTR("Không ai làm bạn giận nếu bạn không cho phép."), PSTR("No one angers you without consent."), PSTR("LK: Đừng cho phép."), PSTR("Advice: Don't consent.")},
-  {PSTR("Cay đắng như ung thư, nó ăn mòn vật chủ."), PSTR("Bitterness eats upon the host."), PSTR("LK: Buông bỏ đi."), PSTR("Advice: Let it go.")},
-  {PSTR("Thuốc chữa giận dữ là sự trì hoãn."), PSTR("Remedy for anger is delay."), PSTR("LK: Đợi một chút."), PSTR("Advice: Wait a while.")},
-  {PSTR("Đừng đi ngủ khi đang giận."), PSTR("Don't go to bed angry."), PSTR("LK: Giải quyết nó."), PSTR("Advice: Resolve it.")},
-  {PSTR("Tha thứ giúp bạn lớn lên."), PSTR("Forgiveness forces you to grow."), PSTR("LK: Tha thứ."), PSTR("Advice: Forgive.")},
-  {PSTR("Trả thù là thú nhận nỗi đau."), PSTR("Revenge is admitting pain."), PSTR("LK: Chữa lành nỗi đau."), PSTR("Advice: Heal the pain.")},
-  {PSTR("Giận dữ là kẻ thù của hòa bình."), PSTR("Anger is the enemy of peace."), PSTR("LK: Tìm sự bình yên."), PSTR("Advice: Find peace.")},
-  {PSTR("Đừng để cảm xúc chi phối hành động."), PSTR("Don't let emotions rule actions."), PSTR("LK: Suy nghĩ trước."), PSTR("Advice: Think first.")}
+  // Angry - Wise & Calming
+  {PSTR("Một trái tim giận dữ sẽ tự thiêu rụi sự bình yên của chính nó."), PSTR("An angry heart consumes its own peace."), PSTR("Hít thở sâu, đừng để cơn giận cầm lái."), PSTR("Breathe deep; don't let anger drive.")},
+  {PSTR("Lời nói lúc giận dữ là lời nói ta hối tiếc nhất."), PSTR("Words spoken in anger are the ones we regret most."), PSTR("Im lặng là sức mạnh lớn nhất lúc này."), PSTR("Silence is your greatest strength right now.")},
+  {PSTR("Giữ cơn giận giống như cầm hòn than nóng định ném người khác."), PSTR("Holding anger is like holding a hot coal to throw at others."), PSTR("Bạn sẽ là người bị bỏng đầu tiên."), PSTR("You will be the first one burned.")},
+  {PSTR("Sự tha thứ là món quà bạn dành cho chính mình."), PSTR("Forgiveness is the gift you give yourself."), PSTR("Buông bỏ là cách tốt nhất để trả thù."), PSTR("Letting go is the best revenge.")},
+  {PSTR("Đừng để hành động của người khác phá hủy giá trị của bạn."), PSTR("Don't let others' actions destroy your value."), PSTR("Bạn cao thượng hơn những điều nhỏ nhen này."), PSTR("You are nobler than these petty things.")},
+  {PSTR("Cơn giận là một cơn bão, rồi nó cũng sẽ tan biến thôi."), PSTR("Anger is a storm; it too will pass away."), PSTR("Hãy là ngọn núi đứng vững trước gió."), PSTR("Be the mountain standing firm in the wind.")},
+  {PSTR("Nếu bạn đúng, bạn không cần phải nổi giận."), PSTR("If you are right, you don't need to be angry."), PSTR("Nếu bạn sai, bạn không có quyền nổi giận."), PSTR("If you are wrong, you have no right to be angry.")},
+  {PSTR("Kiểm soát cơn giận là kiểm soát số phận của chính mình."), PSTR("Controlling anger is controlling your own destiny."), PSTR("Hãy làm chủ bản thân mình nhé."), PSTR("Take mastery over yourself.")},
+  {PSTR("Một phút nhẫn nhịn giúp bạn tránh được trăm ngày u sầu."), PSTR("One minute of patience saves a hundred days of sorrow."), PSTR("Hãy đếm đến mười trước khi lên tiếng."), PSTR("Count to ten before you speak.")},
+  {PSTR("Trả thù chỉ tạo ra một vòng lặp đau khổ vô tận."), PSTR("Revenge only creates an endless loop of suffering."), PSTR("Hãy là người cắt đứt cái vòng lặp đó."), PSTR("Be the one to break that cycle.")},
+  {PSTR("Tử tế là câu trả lời mạnh mẽ nhất cho sự thô lỗ."), PSTR("Kindness is the strongest answer to rudeness."), PSTR("Hãy dùng ánh sáng để xua tan bóng tối."), PSTR("Use light to dispel the darkness.")},
+  {PSTR("Cơn giận giống như một ngọn lửa, nếu không kiểm soát nó sẽ thiêu rụi bạn."), PSTR("Anger is like a fire; if you don't control it, it will burn you."), PSTR("Hãy làm chủ cảm xúc của mình."), PSTR("Take mastery of your emotions.")},
+  {PSTR("Đừng để lời nói lúc nóng giận làm tổn thương người bạn yêu."), PSTR("Don't let words spoken in anger hurt the ones you love."), PSTR("Sự hối tiếc thường đến sau cơn giận."), PSTR("Regret often follows anger.")},
+  {PSTR("Bình tĩnh là một loại sức mạnh tĩnh lặng."), PSTR("Calmness is a type of silent power."), PSTR("Hãy dùng sự điềm tĩnh để đối diện với mọi việc."), PSTR("Use composure to face everything.")},
+  {PSTR("Kẻ thù lớn nhất không phải người khác, mà là cơn giận bên trong."), PSTR("The biggest enemy is not others, but the anger within."), PSTR("Hãy chiến thắng chính bản thân mình."), PSTR("Vanquish yourself first.")},
+  {PSTR("Sự bao dung sẽ dập tắt mọi ngọn lửa hận thù."), PSTR("Tolerance will extinguish every flame of hatred."), PSTR("Hãy mở rộng lòng mình ra nhé."), PSTR("Open your heart wider.")}
 };
 const Msg mS[] PROGMEM = {
-  // Fear - Quotes + Advice
-  {PSTR("Thứ duy nhất đáng sợ là nỗi sợ."), PSTR("\"The only thing to fear is fear itself.\""), PSTR("LK: Sợ hãi chỉ là cảm giác."), PSTR("Advice: Fear is just a feeling.")},
-  {PSTR("Sợ hãi là phản xạ. Can đảm là lựa chọn."), PSTR("Fear is reaction. Courage is decision."), PSTR("LK: Hãy chọn sự dũng cảm."), PSTR("Advice: Choose to be brave.")},
-  {PSTR("Làm một việc khiến bạn sợ mỗi ngày."), PSTR("Do one thing every day that scares you."), PSTR("LK: Bước ra khỏi vùng an toàn."), PSTR("Advice: Step out of comfort zone.")},
-  {PSTR("Mọi thứ bạn muốn ở bên kia nỗi sợ."), PSTR("Everything you want is on the other side of fear."), PSTR("LK: Hãy tiến tới và lấy nó."), PSTR("Advice: Go get it.")},
-  {PSTR("Can đảm là chiến thắng nỗi sợ."), PSTR("Courage is triumph over fear."), PSTR("LK: Bạn có thể chiến thắng."), PSTR("Advice: You can triumph.")},
-  {PSTR("Đối mặt với mọi thứ và vươn lên."), PSTR("Face Everything And Rise."), PSTR("LK: Sự lựa chọn là của bạn."), PSTR("Advice: The choice is yours.")},
-  {PSTR("Sợ hãi là cảm giác. Dũng cảm là hành động."), PSTR("Scared is feeling. Brave is doing."), PSTR("LK: Tiếp tục hành động."), PSTR("Advice: Keep doing it.")},
-  {PSTR("Đừng sợ thất bại, hãy sợ không thử."), PSTR("Don't fear failure, fear not trying."), PSTR("LK: Hãy thử sức mình."), PSTR("Advice: Take the chance.")},
-  {PSTR("Sợ hãi là tạm thời. Hối tiếc là mãi mãi."), PSTR("Fear is temporary. Regret is forever."), PSTR("LK: Đừng để nỗi sợ ngăn cản."), PSTR("Advice: Don't let fear stop you.")},
-  {PSTR("Bạn mạnh mẽ hơn nỗi sợ của mình."), PSTR("You are stronger than your fear."), PSTR("LK: Tin vào sức mạnh của bạn."), PSTR("Advice: Trust your strength.")},
-  {PSTR("Can đảm là kháng cự, làm chủ nỗi sợ."), PSTR("Courage is mastery of fear."), PSTR("LK: Làm chủ nó."), PSTR("Advice: Master it.")},
-  {PSTR("Đừng để nỗi sợ thất bại ngăn bạn chơi."), PSTR("Don't let fear keep you from playing."), PSTR("LK: Chơi hết mình."), PSTR("Advice: Play the game.")},
-  {PSTR("Nhiều người không sống với ước mơ vì sợ."), PSTR("Many don't live dreams because of fear."), PSTR("LK: Sống với ước mơ."), PSTR("Advice: Live your dream.")},
-  {PSTR("Nỗi sợ cắt sâu hơn gươm giáo."), PSTR("Fear cuts deeper than swords."), PSTR("LK: Đừng để nó làm tổn thương."), PSTR("Advice: Don't let it cut.")},
-  {PSTR("Đối diện nỗi sợ, nó sẽ mất quyền lực."), PSTR("Expose fear, it loses power."), PSTR("LK: Vạch trần nó."), PSTR("Advice: Expose it.")},
-  {PSTR("Chinh phục nỗi sợ mỗi ngày."), PSTR("Conquer some fear every day."), PSTR("LK: Chinh phục hôm nay."), PSTR("Advice: Conquer today.")},
-  {PSTR("Nỗi sợ chỉ sâu đến mức tâm trí cho phép."), PSTR("Fear is only as deep as mind allows."), PSTR("LK: Kiểm soát tâm trí."), PSTR("Advice: Control your mind.")},
-  {PSTR("Cảm thấy sợ nhưng vẫn cứ làm."), PSTR("Feel the fear and do it anyway."), PSTR("LK: Cứ làm đi."), PSTR("Advice: Do it.")},
-  {PSTR("Đừng sợ bóng tối, hãy thắp nến."), PSTR("Don't fear dark, light a candle."), PSTR("LK: Thắp sáng hy vọng."), PSTR("Advice: Light hope.")},
-  {PSTR("Sợ hãi giết chết nhiều ước mơ hơn thất bại."), PSTR("Fear kills more dreams than failure."), PSTR("LK: Đừng để nó giết ước mơ."), PSTR("Advice: Save your dreams.")},
-  {PSTR("Hành động chữa lành nỗi sợ."), PSTR("Action cures fear."), PSTR("LK: Hành động ngay."), PSTR("Advice: Act now.")},
-  {PSTR("Bạn an toàn, hãy tin tưởng."), PSTR("You are safe, trust the process."), PSTR("LK: Mọi thứ sẽ ổn."), PSTR("Advice: Everything will be ok.")}
+  // Fear - Bravery & Perspective
+  {PSTR("Sợ hãi là một bóng ma, nó chỉ sống nếu bạn tin vào nó."), PSTR("Fear is a ghost; it only lives if you believe in it."), PSTR("Bạn mạnh mẽ hơn ảo giác này."), PSTR("You are stronger than this illusion.")},
+  {PSTR("Can đảm không phải là không sợ, mà là làm dù vẫn sợ."), PSTR("Courage isn't the absence of fear, but doing it anyway."), PSTR("Hãy thử một bước nhỏ thôi."), PSTR("Just take one small step.")},
+  {PSTR("Mọi điều bạn muốn đều nằm ở bên kia của sự sợ hãi."), PSTR("Everything you want is on the other side of fear."), PSTR("Cánh cửa đang mở, hãy bước qua."), PSTR("The door is open; walk through.")},
+  {PSTR("Nỗi sợ là một phản xạ, nhưng can đảm là một lựa chọn."), PSTR("Fear is a reaction, but courage is a choice."), PSTR("Hãy chọn dũng cảm vào giây phút này."), PSTR("Choose courage at this very moment.")},
+  {PSTR("Đừng sợ bóng tối, vì đó là nơi bạn thấy được những vì sao."), PSTR("Don't fear the dark, for that's where you see the stars."), PSTR("Ánh sáng bên trong bạn sẽ dẫn lối."), PSTR("The light inside you will lead the way.")},
+  {PSTR("Sợ thất bại là rào cản lớn nhất của sự thành công."), PSTR("Fear of failure is the greatest barrier to success."), PSTR("Thất bại chỉ là một cách để bắt đầu lại."), PSTR("Failure is just a way to start over.")},
+  {PSTR("Nỗi sợ chỉ mạnh khi bạn trốn chạy nó."), PSTR("Fear is only strong when you run away from it."), PSTR("Hãy quay lại và nhìn thẳng vào nó."), PSTR("Turn around and look directly at it.")},
+  {PSTR("Bạn không cô đơn, ai cũng có nỗi sợ riêng của mình."), PSTR("You are not alone; everyone has their own fears."), PSTR("Dũng cảm là cùng nhau bước tiếp."), PSTR("Bravery is moving forward together.")},
+  {PSTR("Quái vật trong đầu luôn đáng sợ hơn quái vật ngoài đời."), PSTR("The monster in your head is scarier than the one in real life."), PSTR("Đừng để trí tưởng tượng đánh lừa bạn."), PSTR("Don't let your imagination trick you.")},
+  {PSTR("Mọi rào cản đều có thể bị phá vỡ bởi sự kiên trì."), PSTR("Every barrier can be broken by persistence."), PSTR("Hãy cứ gõ cửa cho đến khi nó mở."), PSTR("Keep knocking until the door opens.")},
+  {PSTR("Sợ hãi chỉ là một bài kiểm tra cho ý chí của bạn."), PSTR("Fear is just a test for your will."), PSTR("Và bạn chắc chắn sẽ vượt qua nó."), PSTR("And you will surely pass it.")},
+  {PSTR("Hãy tin rằng bạn được bảo vệ bởi những điều tốt đẹp."), PSTR("Believe that you are protected by good things."), PSTR("Sự an tâm nằm ở niềm tin của bạn."), PSTR("Peace of mind lies in your faith.")},
+  {PSTR("Nỗi sợ chỉ là một rào cản ảo mà tâm trí tạo ra."), PSTR("Fear is just a virtual barrier created by the mind."), PSTR("Hãy can đảm bước xuyên qua nó."), PSTR("Step courageously through it.")},
+  {PSTR("Làm những điều bạn sợ, và nỗi sợ sẽ biến mất."), PSTR("Do the things you fear, and fear will vanish."), PSTR("Hành động là phương thuốc tốt nhất."), PSTR("Action is the best medicine.")},
+  {PSTR("Đừng để nỗi sợ thất bại ngăn cản bạn vươn tới thành công."), PSTR("Don't let the fear of failure stop you from reaching success."), PSTR("Thất bại chỉ là một bước đệm."), PSTR("Failure is just a stepping stone.")},
+  {PSTR("Bạn mạnh mẽ hơn những gì nỗi sợ nói với bạn."), PSTR("You are stronger than what fear tells you."), PSTR("Hãy lắng nghe tiếng nói của trái tim."), PSTR("Listen to the voice of your heart.")},
+  {PSTR("Sợ hãi là một phần của cuộc sống, nhưng đừng để nó làm chủ."), PSTR("Fear is a part of life, but don't let it rule you."), PSTR("Bạn là người cầm lái cuộc đời mình."), PSTR("You are the driver of your life.")}
 };
 
 const Msg mLA[] PROGMEM = {
-  // Anxious - Quotes + Advice
-  {PSTR("Lo lắng không làm hết muộn phiền ngày mai."), PSTR("Worrying doesn't empty tomorrow's sorrow."), PSTR("LK: Nó làm hết sức lực hôm nay."), PSTR("Advice: It empties today's strength.")},
-  {PSTR("Hít thở sâu. Mọi chuyện sẽ ổn thôi."), PSTR("Take a deep breath. It will be okay."), PSTR("LK: Bạn đang làm tốt mà."), PSTR("Advice: You are doing fine.")},
-  {PSTR("Bạn không cần phải kiểm soát mọi thứ."), PSTR("You don't have to control everything."), PSTR("LK: Hãy buông bỏ những thứ không thể."), PSTR("Advice: Let go of what you can't.")},
-  {PSTR("Suy nghĩ quá nhiều là kẻ thù của hạnh phúc."), PSTR("Overthinking is the enemy of happiness."), PSTR("LK: Đừng suy nghĩ nữa, hãy làm đi."), PSTR("Advice: Stop thinking, just do.")},
-  {PSTR("Đừng lo lắng về những điều chưa xảy ra."), PSTR("Don't worry about what hasn't happened."), PSTR("LK: Sống cho hiện tại."), PSTR("Advice: Live in the moment.")},
-  {PSTR("Bình tĩnh là một siêu năng lực."), PSTR("Calm is a super power."), PSTR("LK: Hãy giữ cái đầu lạnh."), PSTR("Advice: Keep a cool head.")},
-  {PSTR("Cảm giác này chỉ là tạm thời."), PSTR("This feeling is temporary."), PSTR("LK: Nó sẽ qua đi."), PSTR("Advice: It will pass.")},
-  {PSTR("Bạn đã đủ tốt rồi."), PSTR("You are enough."), PSTR("LK: Đừng tự gây áp lực."), PSTR("Advice: Don't pressure yourself.")},
-  {PSTR("Tập trung vào điều bạn kiểm soát được."), PSTR("Focus on what you can control."), PSTR("LK: Buông bỏ phần còn lại."), PSTR("Advice: Let go of the rest.")},
-  {PSTR("Mỗi lần một bước thôi."), PSTR("One step at a time."), PSTR("LK: Đừng vội vàng."), PSTR("Advice: Don't rush.")},
-  {PSTR("Hít vào bình yên, thở ra áp lực."), PSTR("Breathe in peace, breathe out stress."), PSTR("LK: Thư giãn cơ thể."), PSTR("Advice: Relax your body.")},
-  {PSTR("Bạn đã vượt qua 100% ngày tồi tệ."), PSTR("You survived 100% of bad days."), PSTR("LK: Bạn rất mạnh mẽ."), PSTR("Advice: You are strong.")},
-  {PSTR("Đừng tin mọi điều bạn nghĩ."), PSTR("Don't believe everything you think."), PSTR("LK: Suy nghĩ không phải sự thật."), PSTR("Advice: Thoughts are not facts.")},
-  {PSTR("Hiện tại là tất cả bạn có."), PSTR("The present is all you have."), PSTR("LK: Sống cho hiện tại."), PSTR("Advice: Live in the now.")},
-  {PSTR("Lo âu là kẻ nói dối."), PSTR("Anxiety is a liar."), PSTR("LK: Đừng tin nó."), PSTR("Advice: Don't believe it.")},
-  {PSTR("Bước nhỏ vẫn là tiến bộ."), PSTR("Small steps are still progress."), PSTR("LK: Cứ tiếp tục đi."), PSTR("Advice: Keep going.")},
-  {PSTR("Đây không phải tận thế."), PSTR("It's not the end of the world."), PSTR("LK: Mọi thứ sẽ ổn."), PSTR("Advice: Everything will be ok.")},
-  {PSTR("Tâm trí bạn là một khu vườn."), PSTR("Your mind is a garden."), PSTR("LK: Gieo hạt giống tích cực."), PSTR("Advice: Plant positive seeds.")},
-  {PSTR("Buông bỏ nhu cầu phải chắc chắn."), PSTR("Let go of need for certainty."), PSTR("LK: Chấp nhận sự bất định."), PSTR("Advice: Accept uncertainty.")},
-  {PSTR("Bạn đang an toàn ngay lúc này."), PSTR("You are safe right now."), PSTR("LK: Nhìn xung quanh xem."), PSTR("Advice: Look around you.")},
-  {PSTR("Lỗi lầm là bằng chứng nỗ lực."), PSTR("Mistakes are proof of trying."), PSTR("LK: Đừng sợ sai."), PSTR("Advice: Don't fear mistakes.")},
-  {PSTR("Hãy tử tế với chính mình."), PSTR("Be kind to yourself."), PSTR("LK: Bạn xứng đáng được yêu thương."), PSTR("Advice: You deserve love.")},
-  {PSTR("Bão tố không kéo dài mãi."), PSTR("Storms don't last forever."), PSTR("LK: Mặt trời sẽ lên."), PSTR("Advice: The sun will rise.")},
-  {PSTR("Tin vào thời điểm của cuộc đời."), PSTR("Trust the timing of your life."), PSTR("LK: Mọi thứ xảy ra đúng lúc."), PSTR("Advice: Things happen on time.")},
-  {PSTR("Nhỡ đâu mọi thứ tốt đẹp thì sao?"), PSTR("What if it all works out?"), PSTR("LK: Nghĩ về điều tích cực."), PSTR("Advice: Think positive.")}
+  // Anxious - Present & Grounding
+  {PSTR("Lo lắng không làm vơi bớt nỗi đau ngày mai, nó chỉ làm cạn sức lực hôm nay."), PSTR("Worrying doesn't empty tomorrow's sorrow; it empties today's strength."), PSTR("Hãy hít thở, bạn chỉ cần lo cho hiện tại."), PSTR("Just breathe; focus only on the now.")},
+  {PSTR("Đừng để tiếng ồn của ngày mai làm lu mờ bản nhạc của hôm nay."), PSTR("Don't let the noise of tomorrow drown out the music of today."), PSTR("Mọi chuyện rồi sẽ ổn thôi."), PSTR("Everything will be okay.")},
+  {PSTR("Bạn không cần phải kiểm soát mọi thứ để được bình yên."), PSTR("You don't have to control everything to be at peace."), PSTR("Thả lỏng đôi vai và hít thở sâu nhé."), PSTR("Relax your shoulders and breathe deep.")},
+  {PSTR("Hít vào bình yên, thở ra lo lắng."), PSTR("Inhale peace, exhale worry."), PSTR("Bạn đang an toàn ở đây, ngay lúc này."), PSTR("You are safe here, right now.")},
+  {PSTR("Suy nghĩ quá mức là nghệ thuật tạo ra vấn đề không tồn tại."), PSTR("Overthinking is the art of creating problems that don't exist."), PSTR("Đừng để tâm trí đánh lừa bạn nhé."), PSTR("Don't let your mind trick you.")},
+  {PSTR("Bạn không phải là những suy nghĩ tiêu cực của mình."), PSTR("You are not your negative thoughts."), PSTR("Bạn là bầu trời, suy nghĩ chỉ là mây."), PSTR("You are the sky; thoughts are just clouds.")},
+  {PSTR("Tập trung vào bước chân này, thay vì cả quãng đường dài."), PSTR("Focus on this single step, instead of the long road."), PSTR("Mọi thứ sẽ dần hiện rõ thôi."), PSTR("Everything will gradually become clear.")},
+  {PSTR("Hiện tại là nơi duy nhất bạn thực sự sống."), PSTR("The present is the only place you truly live."), PSTR("Hãy quay về với nhịp thở của mình."), PSTR("Come back to the rhythm of your breath.")},
+  {PSTR("Đừng lo về việc phải hoàn hảo, hãy cứ là chính mình."), PSTR("Don't worry about being perfect; just be yourself."), PSTR("Sự chân thật mang lại sự bình an."), PSTR("Authenticity brings peace.")},
+  {PSTR("Thế giới vẫn quay dù bạn có lo lắng hay không."), PSTR("The world keeps spinning whether you worry or not."), PSTR("Hãy cho phép mình được nghỉ ngơi."), PSTR("Allow yourself to take a rest.")},
+  {PSTR("Mọi bồn chồn rồi sẽ tan biến như sương mù buổi sáng."), PSTR("All restlessness will vanish like morning mist."), PSTR("Nắng sớm đang chờ đón bạn phía trước."), PSTR("The morning sun is waiting for you ahead.")},
+  {PSTR("Bạn đã vượt qua mọi khó khăn trước đây, lần này cũng vậy."), PSTR("You've overcome all past difficulties; this time is no different."), PSTR("Tin vào sự kiên cường của chính mình."), PSTR("Trust in your own resilience.")},
+  {PSTR("Hãy tập trung vào hơi thở, chỉ có hiện tại mới là thật."), PSTR("Focus on your breath; only the present is real."), PSTR("Lo lắng về tương lai chỉ là ảo giác."), PSTR("Worrying about the future is an illusion.")},
+  {PSTR("Bạn không cần phải biết tất cả các câu trả lời ngay bây giờ."), PSTR("You don't need to have all the answers right now."), PSTR("Mọi thứ sẽ dần sáng tỏ theo thời gian."), PSTR("Everything will clarify in time.")},
+  {PSTR("Hãy đối xử với bản thân bằng sự dịu dàng như với một người bạn."), PSTR("Treat yourself with gentleness as you would a friend."), PSTR("Bạn xứng đáng được bình yên."), PSTR("You deserve peace.")},
+  {PSTR("Lo âu là một đám mây, nó sẽ trôi qua nếu bạn để yên."), PSTR("Anxiety is a cloud; it will pass if you let it be."), PSTR("Đừng cố xua đuổi, hãy cứ quan sát nó."), PSTR("Don't try to chase it; just observe it.")},
+  {PSTR("Mọi chuyện rồi sẽ đâu vào đấy, hãy tin vào sự sắp đặt."), PSTR("Everything will fall into place; trust the arrangement."), PSTR("Bạn đang được che chở."), PSTR("You are being protected.")}
 };
 
 const PROGMEM void* const messageGroups[] = { mV, mB, mK, mTv, mTg, mS, mLA };
@@ -395,22 +393,25 @@ void initGame() {
   else if(gameChoice == 3) { st=SNAKE; sc=0; snLen=3; snX[0]=5; snY[0]=5; snX[1]=4; snY[1]=5; snX[2]=3; snY[2]=5; snDirX=1; snDirY=0; apX=10; apY=8; highScore=getHighScore(3); }
   else if(gameChoice == 4) { st=DINO; sc=0; dY=55; dV=0; obsX=128; obsW=6; obsH=10; highScore=getHighScore(4); }
   else if(gameChoice == 5) { st=FLAPPY; sc=0; fbY=32; fbV=0; pipeX=SW; pipeH=random(10, SH-pipeGap-10); highScore=getHighScore(5); }
-  else if(gameChoice == 6) { st=CRINEMAFT; sc=0; playerX=2; playerY=2; playerA=0; highScore=getHighScore(6); }
-  else if(gameChoice == 7) { st=TANK; sc=0; tX=32; tY=32; tA=0; bActive=false; eAlive=true; eTX=96; eTY=32; eTA=3.14; highScore=getHighScore(7); }
-  else if(gameChoice == 8) { st=DASH; sc=0; dashY=54; dashV=0; dashObsX=128; highScore=getHighScore(8); }
-  else if(gameChoice == 9) { st=BREAKOUT; sc=0; brkX=64; brkY=40; brkDX=1.5; brkDY=-1.5; pdX=(SW/2)-10; for(int i=0;i<5;i++)for(int j=0;j<3;j++)bricks[i][j]=true; highScore=getHighScore(9); }
-  else if(gameChoice == 10) { st=MAZE; sc=0; mzX=1; mzY=1; for(int i=0;i<16;i++)for(int j=0;j<8;j++)maze[i][j]=(random(10)>7); maze[1][1]=0; maze[14][6]=0; highScore=getHighScore(10); }
+  else if(gameChoice == 6) { st=TANK; sc=0; tX=32; tY=32; tA=0; bActive=false; eAlive=true; eTX=96; eTY=32; eTA=3.14; highScore=getHighScore(6); }
+  else if(gameChoice == 7) { st=DASH; sc=0; dashY=54; dashV=0; dashObsX=128; dashMode=0; highScore=getHighScore(7); }
+  else if(gameChoice == 8) { st=BREAKOUT; sc=0; brkX=64; brkY=40; brkDX=1.5; brkDY=-1.5; pdX=(SW/2)-10; for(int i=0;i<8;i++)for(int j=0;j<4;j++)bricks[i][j]=true; highScore=getHighScore(8); }
+  else if(gameChoice == 9) { st=MAZE; sc=0; mzX=1; mzY=1; for(int i=0;i<16;i++)for(int j=0;j<8;j++)maze[i][j]=(random(10)>7); maze[1][1]=0; maze[14][6]=0; highScore=getHighScore(9); }
+  else if(gameChoice == 10) { st=INVADERS; sc=0; invX=60; invBAct=false; for(int i=0;i<10;i++){invsX[i]=(i%5)*20+10; invsY[i]=(i/5)*12+10; invsA[i]=true;} highScore=getHighScore(10); }
+  else if(gameChoice == 11) { st=CATCH; sc=0; ctX=60; ctOX=random(120); ctOY=0; highScore=getHighScore(11); }
+  else if(gameChoice == 12) { st=DOOM; px_doom=2.0; py_doom=2.0; pa_doom=0.0; }
   lastGame = st;
 }
 
 int getHSOffset(int gameIdx) {
   if (gameIdx == 4) return 110; // Dino HS
   if (gameIdx == 5) return 112; // Flappy Bird HS
-  if (gameIdx == 6) return 114; // CrineMaft HS
-  if (gameIdx == 7) return 116; // Tank HS
-  if (gameIdx == 8) return 118; // Dash HS
-  if (gameIdx == 9) return 120; // Breakout HS (Max 121 for 2 bytes, so OK)
-  if (gameIdx == 10) return 128; // Maze HS
+  if (gameIdx == 6) return 116; // Tank HS
+  if (gameIdx == 7) return 118; // Dash HS
+  if (gameIdx == 8) return 120; // Breakout HS
+  if (gameIdx == 9) return 128; // Maze HS
+  if (gameIdx == 10) return 136; // Invaders HS
+  if (gameIdx == 11) return 138; // Catch HS
   return 2 + (gameIdx * 2);
 }
 
@@ -440,10 +441,6 @@ void logEmotion(int emoIdx) {
   EEPROM.write(addr, now.day());
   EEPROM.write(addr + 1, now.month());
   EEPROM.write(addr + 2, emoIdx);
-  
-  if (emoIdx == 0) petMood = min(100, petMood + 5); // Happy
-  else if (emoIdx >= 1 && emoIdx <= 6) petMood = max(0, petMood - 5); // Other negative emotions
-  EEPROM.write(134, petMood);
 
   head = (head + 1) % 30;
   EEPROM.write(10, head);
@@ -454,6 +451,10 @@ void setup() {
   Wire.begin(5, 6);
   pinMode(PIN_UP, INPUT_PULLUP); pinMode(PIN_DOWN, INPUT_PULLUP);
   pinMode(PIN_LEFT, INPUT_PULLUP); pinMode(PIN_RIGHT, INPUT_PULLUP); pinMode(PIN_OK, INPUT_PULLUP);
+  pinMode(PIN_SLP, INPUT_PULLUP);
+  pinMode(PIN_VCC, OUTPUT);
+  digitalWrite(PIN_VCC, HIGH); // Power on screen initially
+  delay(100); // Give screen time to boot
   EEPROM.begin(EEPROM_SIZE);
   if (!rtc.begin()) { /* Handle error if needed */ }
   
@@ -471,8 +472,6 @@ void setup() {
   // Load Screen Timeout Value
   screenTimeoutValue = (EEPROM.read(130) << 24) | (EEPROM.read(131) << 16) | (EEPROM.read(132) << 8) | EEPROM.read(133);
   if (screenTimeoutValue == 0 || screenTimeoutValue > 300000) screenTimeoutValue = 30000; // Default to 30s, max 5 min
-  petMood = EEPROM.read(134);
-  if (petMood > 100) petMood = 50; // Sanity check for pet mood
 
   if (EEPROM.read(10) >= 30) {
     EEPROM.write(10, 0);
@@ -490,6 +489,7 @@ void setup() {
   nTr.setDebounceTime(0);
   nP.setDebounceTime(0);
   nOk.setDebounceTime(0);
+  nSlp.setDebounceTime(50); // Small debounce for physical sleep button
   myfont.set_font(VietFont);
 
   // Splash Screen
@@ -607,41 +607,6 @@ void drawPauseMenu() {
   display.display();
 }
 
-void drawEmotiPet(int mood) {
-  int petX = SW - 18; // Bottom right corner
-  int petY = SH - 18;
-
-  // Clear area for pet
-  display.fillRect(petX, petY, 16, 16, SH110X_BLACK);
-
-  // Pet body (simple square/blob)
-  display.drawRect(petX + 1, petY + 1, 14, 14, SH110X_WHITE);
-
-  // Eyes
-  display.drawPixel(petX + 4, petY + 4, SH110X_WHITE);
-  display.drawPixel(petX + 11, petY + 4, SH110X_WHITE);
-
-  // Mouth based on mood
-  if (mood > 75) { // Very Happy (big smile)
-    display.drawPixel(petX + 7, petY + 11, SH110X_WHITE);
-    display.drawPixel(petX + 8, petY + 11, SH110X_WHITE);
-    display.drawPixel(petX + 6, petY + 10, SH110X_WHITE);
-    display.drawPixel(petX + 9, petY + 10, SH110X_WHITE);
-  } else if (mood > 50) { // Happy (small smile)
-    display.drawFastHLine(petX + 6, petY + 11, 4, SH110X_WHITE);
-  } else if (mood == 50) { // Neutral (straight line)
-    display.drawFastHLine(petX + 6, petY + 10, 4, SH110X_WHITE);
-  } else if (mood < 25) { // Very Sad (big frown)
-    display.drawPixel(petX + 7, petY + 10, SH110X_WHITE);
-    display.drawPixel(petX + 8, petY + 10, SH110X_WHITE);
-    display.drawPixel(petX + 6, petY + 11, SH110X_WHITE);
-    display.drawPixel(petX + 9, petY + 11, SH110X_WHITE);
-  } else { // Slightly Sad (small frown)
-    display.drawFastHLine(petX + 6, petY + 10, 4, SH110X_WHITE);
-  }
-}
-
-
 bool checkC(int nx, int ny, int nr) {
   for (int i = 0; i < 16; i++) if (shapes[pT][nr] & (1 << (15 - i))) {
     int tx = nx + (i % 4), ty = ny + (i / 4);
@@ -652,17 +617,50 @@ bool checkC(int nx, int ny, int nr) {
 }
 
 void loop() {
-  nL.loop(); nX.loop(); nTr.loop(); nP.loop(); nOk.loop();
+  nL.loop(); nX.loop(); nTr.loop(); nP.loop(); nOk.loop(); nSlp.loop();
 
   bool anyButtonDown = (digitalRead(PIN_UP) == LOW || digitalRead(PIN_DOWN) == LOW || 
                         digitalRead(PIN_LEFT) == LOW || digitalRead(PIN_RIGHT) == LOW || 
-                        digitalRead(PIN_OK) == LOW);
+                        digitalRead(PIN_OK) == LOW || digitalRead(PIN_SLP) == LOW);
+
+  // Handle Manual Sleep/Wake Button (Phone-like behavior)
+  if (nSlp.isPressed()) {
+    if (!screenOn && manualSleep) {
+      // Manual wake up from sleep button
+      manualSleep = false;
+      screenOn = true;
+      digitalWrite(PIN_VCC, HIGH);
+      delay(50); // Stabilization
+      display.begin(0x3C, true);
+      display.setTextColor(SH110X_WHITE);
+      display.setTextWrap(false);
+      lastActivityTime = millis();
+      ignoreUntilAllReleased = true;
+    } else if (screenOn) {
+      // Manual sleep via button
+      screenOn = false;
+      manualSleep = true;
+      noTone(BZ);
+      display.oled_command(SH110X_DISPLAYOFF); // Tell the controller to shut down charge pumps
+      delay(10); // Short delay for discharge
+      digitalWrite(PIN_VCC, LOW);
+    }
+    return;
+  }
 
   // Handle Screen Wake
   if (!screenOn) {
-    if (anyButtonDown) {
+    if (!manualSleep && anyButtonDown) {
+      // Restore physical power
+      digitalWrite(PIN_VCC, HIGH);
+      delay(50); // Wait for OLED controller to stabilize
+
+      // Re-initialize display settings lost during power cut
+      display.begin(0x3C, true);
+      display.setTextColor(SH110X_WHITE);
+      display.setTextWrap(false);
+      
       screenOn = true;
-      display.oled_command(SH110X_DISPLAYON);
       lastActivityTime = millis();
       ignoreUntilAllReleased = true; // Don't trigger action on wake-up press
     }
@@ -673,7 +671,7 @@ void loop() {
   if (ignoreUntilAllReleased) {
     if (!anyButtonDown) ignoreUntilAllReleased = false;
     // Consume transition flags while waiting for release
-    nL.isPressed(); nX.isPressed(); nTr.isPressed(); nP.isPressed(); nOk.isPressed();
+    nL.isPressed(); nX.isPressed(); nTr.isPressed(); nP.isPressed(); nOk.isPressed(); nSlp.isPressed();
     return;
   }
 
@@ -682,7 +680,11 @@ void loop() {
     lastActivityTime = millis();
   } else if (millis() - lastActivityTime > screenTimeoutValue) {
     screenOn = false;
-    display.oled_command(SH110X_DISPLAYOFF);
+    manualSleep = false; // This was an auto-timeout, not manual
+    display.oled_command(SH110X_DISPLAYOFF); // Graceful software shutdown
+    delay(10);
+    digitalWrite(PIN_VCC, LOW); // Physically cut power
+    noTone(BZ); // Stop any active buzzer alerts
     return;
   }
 
@@ -724,8 +726,6 @@ void loop() {
         // Skip the rest of E_SEL drawing for this frame
         return; 
     }
-    
-    drawEmotiPet(petMood); // Draw the Emoti-Pet
 
     // Animation: Truot muot ma
     if (abs(targetX - currentX) > 0.1) currentX += (targetX - currentX) * 0.3;
@@ -746,11 +746,9 @@ void loop() {
       if (xP > -60 && xP < 130) {
         display.setTextSize(3); display.setCursor(xP, 20); display.print(ic[i]);
         String name = (language == 0) ? nmVI[i] : nmEN[i];
-        if (language == 0) {
-           myfont.print(xP + (ic[i].length() * 9) - (myfont.getLength((char*)name.c_str()) / 2), 52, (char*)name.c_str(), SH110X_WHITE);
-        } else {
-           display.setTextSize(1); display.setCursor(xP + (ic[i].length() * 9) - (name.length() * 3), 52); display.print(name);
-        }
+        int textOff = (ic[i].length() * 9);
+        if (language == 0) myfont.print(xP + textOff - (myfont.getLength((char*)name.c_str()) / 2), 52, (char*)name.c_str(), SH110X_WHITE);
+        else { display.setTextSize(1); display.setCursor(xP + textOff - (name.length() * 3), 52); display.print(name); }
       }
     }
 
@@ -846,11 +844,7 @@ void loop() {
     if(nTr.isPressed() || nP.isPressed() || nL.isPressed() || nX.isPressed()) { mIdx = 1 - mIdx; beep(600, 30); }
     if(nOk.isPressed()) {
       logEmotion(eIdx); // Ghi lai cam xuc ke ca khi chon KHONG
-      if(mIdx == 0) { 
-        st = G_SEL; 
-      } else { 
-        st = E_SEL; 
-      }
+      st = E_SEL;
       beep(1500, 100);
     }
   }
@@ -860,34 +854,34 @@ void loop() {
     if (language == 0) myfont.print((SW - myfont.getLength("Chọn game:"))/2, 0, "Chọn game:", SH110X_WHITE);
     else { display.setCursor(28, 0); display.println("SELECT GAME:"); }
     
-    const char* gNames[] = {"TETRIS", "CROSSY", "PINGPONG", "SNAKE", "DINO", "FLAPPY", "CRINEMAFT", "TANK", "DASH", "BREAKOUT", "MAZE"};
+    const char* gNames[] = {"TETRIS", "CROSSY", "PINGPONG", "SNAKE", "DINO", "FLAPPY", "TANK", "DASH", "BREAKOUT", "MAZE", "INVADERS", "CATCH"};
     const char* exitName = (language==0) ? "Thoát" : "EXIT";
     int top = (mIdx > 4) ? mIdx - 4 : 0; // Show more items on screen or scroll sooner
-    for(int i=0; i<12; i++) {
+    for(int i=0; i<13; i++) {
       int y = 12 + (i - top) * 9;
       if(y < 12) continue;
       if(y < 64) {
         if (language == 0) {
            myfont.print(10, y, (mIdx == i) ? "> " : "  ", SH110X_WHITE);
-           myfont.print(22, y, (char*)((i < 11) ? gNames[i] : exitName), SH110X_WHITE);
+           myfont.print(22, y, (char*)((i < 12) ? gNames[i] : exitName), SH110X_WHITE);
         } else {
            display.setCursor(10, y);
            if(mIdx == i) display.print("> "); else display.print("  ");
-           if (i < 11) display.println(gNames[i]); else display.println(exitName);
+           if (i < 12) display.println(gNames[i]); else display.println(exitName);
         }
       }
     }
     display.display();
-    if(nL.isPressed()) { mIdx=(mIdx-1+12)%12; beep(600, 20); }
-    if(nX.isPressed()) { mIdx=(mIdx+1)%12; beep(600, 20); }
+    if(nL.isPressed()) { mIdx=(mIdx-1+13)%13; beep(600, 20); }
+    if(nX.isPressed()) { mIdx=(mIdx+1)%13; beep(600, 20); }
     if(nOk.isPressed()) {
-      if (mIdx == 11) { // THOAT
+      if (mIdx == 12) { // THOAT
         st = E_SEL;
         beep(1500, 50);
       } else {
         gameChoice = mIdx;
         st = DIFF_SEL;
-        mIdx = difficulty; // Mac dinh chon do kho hien tai
+        mIdx = difficulty;
         beep(1000, 50);
       }
     }
@@ -932,7 +926,7 @@ void loop() {
     int startSpd = (difficulty == 0) ? 600 : ((difficulty == 1) ? 500 : 400);
     int minSpd = (difficulty == 0) ? 150 : ((difficulty == 1) ? 100 : 50);
     int baseSpeed = max(minSpd, startSpd - (sc / 500) * 30);
-    int fS = (nX.isPressed()) ? 50 : baseSpeed;
+    int fS = (digitalRead(PIN_DOWN) == LOW) ? 50 : baseSpeed;
     if (millis() - lF > fS) {
       if (!checkC(px, py + 1, pR)) py++;
       else {
@@ -1046,7 +1040,7 @@ void loop() {
     display.clearDisplay();
     for (int i = 0; i < snLen; i++) display.fillRect(snX[i]*4, snY[i]*4, 3, 3, SH110X_WHITE);
     display.fillRect(apX*4, apY*4, 3, 3, SH110X_WHITE);
-    display.setCursor(0,0); display.print(sc);
+    display.setCursor(0,0); display.print(sc); display.print(" HI:"); display.print(highScore);
     display.display();
     if (nOk.isPressed()) { st = PAUSE; pauseOpt = 0; beep(1000, 50); }
   }
@@ -1129,11 +1123,12 @@ void loop() {
 
     // --- Collision ---
     bool collision = (fbY < 0 || fbY > SH - 8); // Top/Bottom
-    if (pipeX < (SW/2 + 4) && pipeX + pipeW > (SW/2 - 4)) { // Pipe X collision
-        if (fbY < pipeH || fbY + 8 > pipeH + pipeGap) collision = true; // Pipe Y
+    if (pipeX < (SW/2 + 3) && pipeX + pipeW > (SW/2 - 3)) { // Tightened hitbox
+        if (fbY + 1 < pipeH || fbY + 7 > pipeH + pipeGap) collision = true;
     }
 
-    if (collision) { saveHighScore(5, sc); playGameOver(); st = GAME_OVER; }
+    if (collision) { saveHighScore(5, sc); playGameOver(); st = GAME_OVER; 
+    }
 
     // --- Drawing ---
     display.clearDisplay();
@@ -1145,40 +1140,6 @@ void loop() {
     display.setCursor(SW - 50, 5); display.print("HI:"); display.print(highScore);
     display.display();
     if (nOk.isPressed()) { st = PAUSE; pauseOpt = 0; beep(1000, 50); }
-  }
-
-  else if (st == CRINEMAFT) {
-    display.clearDisplay();
-    for(int x=0; x<SW; x+=2) {
-      float rayA = (playerA - 0.5) + ((float)x/SW);
-      float eyeX = sin(rayA), eyeY = cos(rayA);
-      float dist = 0; bool hit = false;
-      while(!hit && dist < 8) {
-        dist += 0.1;
-        int testX = (int)(playerX + eyeX * dist), testY = (int)(playerY + eyeY * dist);
-        if(testX<0||testX>=8||testY<0||testY>=8||worldMap[testX][testY]==1) hit=true;
-      }
-      int ceil = (SH/2.0) - SH/dist, floor = SH - ceil;
-      display.drawFastVLine(x, ceil, floor-ceil, SH110X_WHITE);
-    }
-    // Dynamic Hand/Direction Indicator (Smaller)
-    int hX = 95, hY = 48;
-    if(nTr.getState()==LOW) hX -= 3; // Sway left on turn
-    if(nP.getState()==LOW) hX += 3;  // Sway right on turn
-    if(nL.getState()==LOW || nX.getState()==LOW) hY += (millis() % 300 < 150 ? 2 : 0); // Bobbing on move
-
-    display.fillRect(hX, hY, 16, 15, SH110X_BLACK);
-    display.drawRect(hX, hY, 16, 15, SH110X_WHITE);
-    display.fillRect(hX + 3, hY + 3, 10, 10, SH110X_WHITE); 
-    // Compass needle inside the white block to show heading
-    display.drawLine(hX+12, hY+12, hX+12+sin(playerA)*6, hY+12+cos(playerA)*6, SH110X_BLACK);
-
-    display.drawPixel(SW/2, SH/2, SH110X_WHITE); // Crosshair
-    display.display();
-    if(nTr.getState()==LOW) playerA -= 0.1; if(nP.getState()==LOW) playerA += 0.1;
-    if(nL.getState()==LOW) { float nx=playerX+sin(playerA)*0.1, ny=playerY+cos(playerA)*0.1; if(worldMap[(int)nx][(int)ny]==0){playerX=nx;playerY=ny;} }
-    if(nX.getState()==LOW) { float nx=playerX-sin(playerA)*0.1, ny=playerY-cos(playerA)*0.1; if(worldMap[(int)nx][(int)ny]==0){playerX=nx;playerY=ny;} }
-    if(nOk.isPressed()) { st = PAUSE; pauseOpt = 0; }
   }
 
   else if (st == TANK) {
@@ -1202,12 +1163,12 @@ void loop() {
       // Collision Bullet vs Enemy
       if(bActive && abs(bX_t-eTX)<6 && abs(bY_t-eTY)<6) { eAlive=false; bActive=false; sc+=10; beep(1200, 50); }
     } else if(random(200)==0) { eAlive=true; eTX=random(20,100); eTY=random(20,50); }
-
+    else if(random(100)==0) { eAlive=true; eTX=random(20,100); eTY=random(20,50); } // Spawn faster
     if(ebActive) {
       display.drawPixel(ebX, ebY, SH110X_WHITE);
       ebX += ebDX; ebY += ebDY;
       if(ebX<0||ebX>SW||ebY<0||ebY>SH) ebActive=false;
-      if(abs(ebX-tX)<5 && abs(ebY-tY)<5) { saveHighScore(7, sc); st=GAME_OVER; playGameOver(); }
+      if(abs(ebX-tX)<5 && abs(ebY-tY)<5) { ebActive = false; saveHighScore(6, sc); st=GAME_OVER; playGameOver(); }
     }
 
     if(bActive) {
@@ -1215,7 +1176,8 @@ void loop() {
       bX_t += bDX_t; bY_t += bDY_t;
       if(bX_t<0||bX_t>SW||bY_t<0||bY_t>SH) bActive=false;
     }
-    display.setCursor(0,0); display.print(sc);
+    if (sc > highScore) saveHighScore(6, sc);
+    display.setCursor(0,0); display.print(sc); display.print(" HI:"); display.print(highScore);
     display.display();
     if(nTr.getState()==LOW) tA -= 0.1; if(nP.getState()==LOW) tA += 0.1;
     
@@ -1231,33 +1193,100 @@ void loop() {
 
   else if (st == DASH) {
     display.clearDisplay();
-    dashY += dashV; dashV += 0.8;
-    if(dashY > 54) { dashY = 54; dashV = 0; }
-    if(nL.isPressed() && dashY == 54) { dashV = -6; beep(600, 20); }
+    static float dashRot = 0;
     
-    float speed = (3.0 + sc/10.0);
+    // --- Progress Calculation ---
+    int progress = sc % 100; // Percentage of the current 100-point "level"
+
+    // --- Cube Physics ---
+    bool onGround = (dashY >= 54);
+    bool onCube = (dashObsType == 1 && dashObsX < 28 && dashObsX + 8 > 20 && dashY + 8 <= 55 && dashY + 8 >= 50 && dashV >= 0);
+
+    if (onCube) { dashY = 46; dashV = 0; onGround = true; }
+    else { dashY += dashV; dashV += 0.8; }
+    
+    if (dashY > 54) { dashY = 54; dashV = 0; onGround = true; }
+    if (nL.isPressed() && onGround) { dashV = -6.5; beep(600, 20); }
+    if (!onGround) dashRot += 0.25; else dashRot = 0;
+
+    // --- Collisions ---
+    // Side hit on platform
+    if(dashObsType == 1 && dashObsX < 22 && dashObsX > 18 && dashY > 46) { saveHighScore(7, sc); st = GAME_OVER; playGameOver(); }
+    // Spike Collision (Spike tip is at y=52, ground at 62)
+    if(dashObsType == 0 && dashObsX < 28 && dashObsX + 10 > 20 && dashY + 8 > 52) { saveHighScore(7, sc); st = GAME_OVER; playGameOver(); }
+
+    float speed = (3.5 + sc / 15.0);
     dashObsX -= speed;
-    if(dashObsX < -10) { dashObsX = 128; sc++; dashObsType = random(2); }
+    if(dashObsX < -15) { dashObsX = 128; sc++; dashObsType = random(2); }
 
-    // Better Player: Reduced Shaking
-    int pW = 8, pH = 8;
-    if(dashV < 0) { pH = 9; pW = 7; } // Subtle Jump stretch
-    else if (dashV > 0) { pH = 7; pW = 9; } // Subtle Fall squash
-    display.fillRect(20, dashY + (8-pH), pW, pH, SH110X_WHITE);
+    // --- Drawing ---
+    // UI: Progress Bar and Percentage
+    display.drawRect(0, 0, SW, 3, SH110X_WHITE);
+    display.fillRect(0, 0, map(progress, 0, 100, 0, SW), 3, SH110X_WHITE);
+    display.setCursor(SW/2 - 10, 5); display.print(progress); display.print("%");
 
-    // Scrolling Ground Pattern
-    for(int i=0; i<138; i+=20) {
-      int gx = (i - (int)(millis()/20 % 20));
-      display.drawFastHLine(gx, 63, 10, SH110X_WHITE);
-    }
+    // Player
+    drawRotRect(24, (int)dashY + 4, 8, dashRot); 
 
+    // Obstacles
     if(dashObsType == 0) display.fillTriangle(dashObsX, 62, dashObsX+5, 52, dashObsX+10, 62, SH110X_WHITE); // Spike
     else display.fillRect(dashObsX, 54, 8, 8, SH110X_WHITE); // Cube
 
+    // Ground and Scrolling Detail
     display.drawFastHLine(0, 62, 128, SH110X_WHITE);
+    for(int i=0; i<128; i+=20) {
+      int gx = (i - (int)(millis()/15) % 20);
+      display.drawFastVLine(gx, 62, 2, SH110X_WHITE);
+    }
+
+    display.setCursor(0, 5); display.print("SC:"); display.print(sc);
+
+    display.display();
+    if(nOk.isPressed()) { st = PAUSE; pauseOpt = 0; }
+  }
+
+  else if (st == INVADERS) {
+    display.clearDisplay();
+    display.fillRect(invX, 58, 12, 5, SH110X_WHITE);
+    if (nTr.getState()==LOW && invX > 0) invX -= 2;
+    if (nP.getState()==LOW && invX < 116) invX += 2;
+    if (nL.isPressed() && !invBAct) { invBAct=true; invBX=invX+6; invBY=58; beep(400,10); }
     
-    if(dashObsX < 28 && dashObsX+10 > 20 && dashY > 44) { saveHighScore(8, sc); st = GAME_OVER; playGameOver(); }
-    display.setCursor(0,0); display.print(sc);
+    if (invBAct) {
+      display.fillRect(invBX, invBY, 2, 4, SH110X_WHITE);
+      invBY -= 3; if (invBY < 0) invBAct=false;
+      for(int i=0; i<10; i++) if(invsA[i] && abs(invBX-invsX[i])<6 && abs(invBY-invsY[i])<6) { invsA[i]=false; invBAct=false; sc+=10; beep(800,20); }
+    }
+    
+    bool allDead = true;
+    for(int i=0; i<10; i++) if(invsA[i]) {
+      allDead = false;
+      display.drawRect(invsX[i]-4, invsY[i]-4, 8, 8, SH110X_WHITE);
+      invsX[i] += sin(millis()*0.002)*0.5;
+      if (invsY[i] > 50) { saveHighScore(10, sc); st=GAME_OVER; playGameOver(); }
+    }
+    if (allDead) { for(int i=0; i<10; i++){invsX[i]=(i%5)*20+10; invsY[i]=(i/5)*12+10; invsA[i]=true;} }
+
+    display.setCursor(0,0); display.print(sc); display.print(" HI:"); display.print(highScore);
+    display.display();
+    if(nOk.isPressed()) { st = PAUSE; pauseOpt = 0; }
+  }
+
+  else if (st == CATCH) {
+    display.clearDisplay();
+    display.drawFastHLine(ctX, 60, 15, SH110X_WHITE); // Basket
+    if (nTr.getState()==LOW && ctX > 0) ctX -= 5;
+    if (nP.getState()==LOW && ctX < 113) ctX += 5;
+    
+    display.fillCircle(ctOX, ctOY, 3, SH110X_WHITE);
+    ctOY += 1.5 + (sc/50.0);
+    
+    if (ctOY + 3 >= 60) {
+      if (ctOX + 3 >= ctX && ctOX - 3 <= ctX+15) { sc += 10; ctOY = 0; ctOX = random(120); beep(1000, 20); }
+      else { saveHighScore(12, sc); st=GAME_OVER; playGameOver(); }
+    }
+    
+    display.setCursor(0,0); display.print(sc); display.print(" HI:"); display.print(highScore);
     display.display();
     if(nOk.isPressed()) { st = PAUSE; pauseOpt = 0; }
   }
@@ -1265,17 +1294,18 @@ void loop() {
   else if (st == BREAKOUT) {
     display.clearDisplay();
     display.fillRect(pdX, 60, 20, 3, SH110X_WHITE);
-    display.fillCircle(brkX, brkY, 2, SH110X_WHITE);
-    for(int i=0; i<5; i++) for(int j=0; j<3; j++) if(bricks[i][j]) {
-      display.drawRect(i*25+2, j*8+5, 22, 6, SH110X_WHITE);
-      if(brkX>i*25+2 && brkX<i*25+24 && brkY>j*8+5 && brkY<j*8+11) { bricks[i][j]=0; brkDY*=-1; sc+=10; beep(800, 20); }
+    display.fillCircle(brkX, brkY, 2, SH110X_WHITE); // Moved higher
+    display.setCursor(0, 50); display.print(sc); display.print(" HI:"); display.print(highScore);
+    for(int i=0; i<8; i++) for(int j=0; j<4; j++) if(bricks[i][j]) {
+      display.drawRect(i*16+2, j*8+2, 13, 6, SH110X_WHITE);
+      if(brkX>i*16+2 && brkX<i*16+15 && brkY>j*8+2 && brkY<j*8+8) { bricks[i][j]=0; brkDY*=-1; sc+=10; beep(800, 20); }
     }
     brkX += brkDX; brkY += brkDY;
     if(brkX<0 || brkX>SW) brkDX *= -1;
     if(brkY<0) brkDY *= -1;
     if(brkY>60 && brkX>pdX && brkX<pdX+20) { brkDY *= -1.1; beep(400, 10); }
-    if(brkY>64) { saveHighScore(9, sc); st=GAME_OVER; playGameOver(); }
-    if(nTr.getState()==LOW && pdX>0) pdX-=2; if(nP.getState()==LOW && pdX<108) pdX+=2;
+    if(brkY>64) { saveHighScore(8, sc); st=GAME_OVER; playGameOver(); }
+    if(nTr.getState()==LOW && pdX>0) pdX-=4; if(nP.getState()==LOW && pdX<108) pdX+=4;
     display.display();
     if(nOk.isPressed()) { st = PAUSE; pauseOpt = 0; }
   }
@@ -1284,8 +1314,9 @@ void loop() {
     display.clearDisplay();
     for(int i=0; i<16; i++) for(int j=0; j<8; j++) if(maze[i][j]) display.fillRect(i*8, j*8, 8, 8, SH110X_WHITE);
     display.fillRect(mzX*8+2, mzY*8+2, 4, 4, SH110X_WHITE); // Player
+    display.setCursor(0, 0); display.print(" HI:"); display.print(highScore);
     display.drawRect(14*8+2, 6*8+2, 4, 4, SH110X_WHITE); // Exit
-    if(mzX == 14 && mzY == 6) { sc+=50; saveHighScore(10, sc); st=G_SEL; beep(2000, 100); }
+    if(mzX == 14 && mzY == 6) { sc+=50; saveHighScore(9, sc); st=G_SEL; beep(2000, 100); }
     if(nL.isPressed() && mzY>0 && !maze[mzX][mzY-1]) mzY--;
     if(nX.isPressed() && mzY<7 && !maze[mzX][mzY+1]) mzY++;
     if(nTr.isPressed() && mzX>0 && !maze[mzX-1][mzY]) mzX--;
@@ -1310,11 +1341,12 @@ void loop() {
         else if (lastGame == SNAKE) gIdx = 3;
         else if (lastGame == DINO) gIdx = 4;
         else if (lastGame == FLAPPY) gIdx = 5;
-        else if (lastGame == CRINEMAFT) gIdx = 6;
-        else if (lastGame == TANK) gIdx = 7;
-        else if (lastGame == DASH) gIdx = 8;
-        else if (lastGame == BREAKOUT) gIdx = 9;
-        else if (lastGame == MAZE) gIdx = 10;
+        else if (lastGame == TANK) gIdx = 6;
+        else if (lastGame == DASH) gIdx = 7;
+        else if (lastGame == BREAKOUT) gIdx = 8;
+        else if (lastGame == MAZE) gIdx = 9;
+        else if (lastGame == INVADERS) gIdx = 10;
+        else if (lastGame == CATCH) gIdx = 11;
         if (gIdx != -1) saveHighScore(gIdx, sc);
         st = G_SEL; 
       }
@@ -1497,10 +1529,10 @@ void loop() {
   else if (st == GADGETS) {
     display.clearDisplay(); 
     if (language == 0) myfont.print((SW - myfont.getLength("Tiện ích:"))/2, 0, "Tiện ích:", SH110X_WHITE); else { display.setCursor(40, 0); display.println("GADGETS:"); }
-    const char* tNamesVI[] = {"Bấm giờ", "Hẹn giờ", "Xúc xắc", "Thiền định", "Nhạc vui", "Thoát"};
-    const char* tNamesEN[] = {"STOPWATCH", "TIMER", "DICE", "ZEN MODE", "MUSIC", "EXIT"};
+    const char* tNamesVI[] = {"Bấm giờ", "Hẹn giờ", "Xúc xắc", "Thiền định", "Morse", "Nhạc vui", "Thoát"};
+    const char* tNamesEN[] = {"STOPWATCH", "TIMER", "DICE", "ZEN MODE", "MORSE", "MUSIC", "EXIT"};
     int top = (mIdx > 3) ? mIdx - 3 : 0;
-    for(int i=0; i<6; i++) {
+    for(int i=0; i<7; i++) {
       int y = 18 + (i - top) * 12;
       if (y < 12 || y >= 64) continue;
       if (language == 0) {
@@ -1513,14 +1545,15 @@ void loop() {
       }
     }
     display.display();
-    if(nL.isPressed()) { mIdx=(mIdx-1+6)%6; beep(600, 20); }
-    if(nX.isPressed()) { mIdx=(mIdx+1)%6; beep(600, 20); }
+    if(nL.isPressed()) { mIdx=(mIdx-1+7)%7; beep(600, 20); }
+    if(nX.isPressed()) { mIdx=(mIdx+1)%7; beep(600, 20); }
     if(nOk.isPressed()) {
       if(mIdx == 0) { st = STOPWATCH; swRun = false; swElapsed = 0; }
       else if(mIdx == 1) { st = TIMER; if(!tmRun) { tmDuration = 0; tmRem = 0; mIdx = 0; tmHour=0; tmMin=0; tmSec=0; } }
       else if(mIdx == 2) { st = DICE; diceVal = 1; }
       else if(mIdx == 3) { st = ZEN_MODE; } //
-      else if(mIdx == 4) { st = MUSIC_PLAYER; mIdx = 0; isMusicPlaying = false; currentSongIdx = -1; }
+      else if(mIdx == 4) { st = MORSE_MENU; mIdx = 0; }
+      else if(mIdx == 5) { st = MUSIC_PLAYER; mIdx = 0; isMusicPlaying = false; currentSongIdx = -1; }
       else st = E_SEL;
       beep(1000, 50);
     }
@@ -1813,9 +1846,6 @@ void loop() {
         EEPROM.write(123, done & 0xFF);
         EEPROM.write(126, (done >> 8) & 0xFF);
         EEPROM.commit();
-        if (done & (1 << activeGoals[mIdx])) { // If goal was just marked done
-            petMood = min(100, petMood + 3); EEPROM.write(134, petMood); EEPROM.commit();
-        }
         beep(800, 20);
       }
     }
@@ -2372,7 +2402,7 @@ void loop() {
     if (nTr.isPressed()) { 
       isMusicPlaying = false; 
       noTone(BZ); 
-      st = GADGETS; mIdx = 4; 
+      st = GADGETS; mIdx = 5; 
       beep(1000, 50); 
     }
 
@@ -2385,5 +2415,142 @@ void loop() {
       currentNoteIdx++;
       if (currentNoteIdx >= playlist[currentSongIdx].length) currentNoteIdx = 0;
     }
+  }
+
+  else if (st == MORSE_MENU) {
+    display.clearDisplay();
+    const char* mItemsVI[] = {"CHỮ -> MORSE", "MORSE -> CHỮ", "QUAY LẠI"};
+    const char* mItemsEN[] = {"TEXT TO MORSE", "MORSE TO TEXT", "BACK"};
+    for(int i=0; i<3; i++) {
+      int y = 15 + i*12;
+      if (language == 0) {
+        myfont.print(15, y, (mIdx == i) ? "> " : "  ", SH110X_WHITE);
+        myfont.print(27, y, (char*)mItemsVI[i], SH110X_WHITE);
+      } else {
+        display.setCursor(15, y);
+        if(mIdx == i) display.print("> "); else display.print("  ");
+        display.print(mItemsEN[i]);
+      }
+    }
+    display.display();
+    if(nL.isPressed()) { mIdx=(mIdx-1+3)%3; beep(600, 20); }
+    if(nX.isPressed()) { mIdx=(mIdx+1)%3; beep(600, 20); }
+    if(nOk.isPressed()) {
+      if(mIdx == 0) { st = TEXT_TO_MORSE; morseBuffer = ""; morsePicker = 'A'; }
+      else if(mIdx == 1) { st = MORSE_TO_TEXT; morseBuffer = ""; morseInputBuffer = ""; }
+      else { st = GADGETS; mIdx = 4; } // Trở về mục Morse trong menu Tools
+      beep(1000, 50);
+    }
+  }
+
+  else if (st == TEXT_TO_MORSE) {
+    display.clearDisplay();
+    if (language == 0) {
+      myfont.print(0, 0, (char*)"KÝ TỰ:", SH110X_WHITE);
+      display.setCursor(45, 0); display.print(morsePicker);
+      myfont.print(0, 12, (char*)"VĂN BẢN:", SH110X_WHITE);
+      display.setCursor(65, 12); display.print(morseBuffer);
+      myfont.print(0, 35, (char*)"MORSE:", SH110X_WHITE);
+    } else {
+      display.setCursor(0, 0); display.print("CHAR: "); display.print(morsePicker);
+      display.setCursor(0, 12); display.print("TEXT: "); display.print(morseBuffer);
+      display.setCursor(0, 35); display.print("MORSE:");
+    }
+    display.setCursor(0, 45);
+    String out = ""; for(int i=0; i<morseBuffer.length(); i++) out += getMorse(morseBuffer[i]) + " ";
+    display.print(out);
+    display.display();
+    
+    if(nL.isPressed()) { 
+      int idx = 0; while(morseAlpha[idx] != morsePicker) idx++;
+      morsePicker = morseAlpha[(idx + 1) % 27]; beep(600, 20);
+    }
+    if(nX.isPressed()) { 
+      int idx = 0; while(morseAlpha[idx] != morsePicker) idx++;
+      morsePicker = morseAlpha[(idx - 1 + 27) % 27]; beep(600, 20);
+    }
+    if(nOk.isPressed()) { morseBuffer += morsePicker; beep(1000, 20); }
+    if(nTr.isPressed()) { st = MORSE_MENU; mIdx = 0; }
+    if(nP.isPressed() && morseBuffer.length() > 0) { morseBuffer.remove(morseBuffer.length()-1); beep(400, 20); }
+  }
+
+  else if (st == MORSE_TO_TEXT) {
+    display.clearDisplay();
+    if (language == 0) {
+      myfont.print(0, 0, (char*)"BẤM OK ĐỂ NHẬP", SH110X_WHITE);
+      myfont.print(0, 15, (char*)"TÍN HIỆU: ", SH110X_WHITE); display.setCursor(65, 15); display.print(morseInputBuffer);
+      myfont.print(0, 35, (char*)"VĂN BẢN: ", SH110X_WHITE); display.setCursor(65, 35); display.print(morseBuffer);
+    } else {
+      display.setCursor(0, 0); display.print("TAP OK FOR SIG");
+      display.setCursor(0, 15); display.print("SIG: "); display.print(morseInputBuffer);
+      display.setCursor(0, 35); display.print("TEXT: "); display.print(morseBuffer);
+    }
+    display.display();
+
+    static unsigned long pressStart = 0;
+    static bool pressed = false;
+
+    if(nOk.getState() == LOW) {
+      if(!pressed) { pressStart = millis(); pressed = true; }
+      morseTimer = millis();
+    } else {
+      if(pressed) {
+        unsigned long dur = millis() - pressStart;
+        if(dur < 250) morseInputBuffer += ".";
+        else morseInputBuffer += "-";
+        pressed = false;
+        morseTimer = millis();
+        beep(800, 50);
+      }
+      
+      if(morseInputBuffer.length() > 0 && millis() - morseTimer > 800) {
+        morseBuffer += fromMorse(morseInputBuffer);
+        morseInputBuffer = "";
+        beep(1200, 50);
+      }
+      if(morseBuffer.length() > 0 && millis() - morseTimer > 2500 && morseBuffer[morseBuffer.length()-1] != ' ') {
+        morseBuffer += " ";
+      }
+    }
+    if(nTr.isPressed()) { st = MORSE_MENU; mIdx = 1; }
+    if(nP.isPressed() && morseBuffer.length() > 0) { morseBuffer.remove(morseBuffer.length()-1); beep(400, 20); }
+  }
+
+  else if (st == DOOM) {
+    display.clearDisplay();
+    // Raycasting engine
+    for(int x = 0; x < SW; x += 2) {
+      float rayA = (pa_doom - 0.5) + ((float)x / (float)SW);
+      float dX = cos(rayA), dY = sin(rayA);
+      float dist = 0;
+      bool hit = false;
+      while(!hit && dist < 12) {
+        dist += 0.15;
+        int testX = (int)(px_doom + dX * dist);
+        int testY = (int)(py_doom + dY * dist);
+        if(testX < 0 || testX >= 12 || testY < 0 || testY >= 12) { hit = true; dist = 12; }
+        else if(worldMap[testY][testX] == 1) hit = true;
+      }
+      int h = (dist > 0) ? (SH / dist) : SH;
+      if (h > SH) h = SH;
+      int y0 = (SH - h) / 2;
+      display.drawFastVLine(x, y0, h, SH110X_WHITE);
+      display.drawFastVLine(x+1, y0, h, SH110X_WHITE);
+    }
+    // Minimap
+    for(int i=0; i<12; i++) for(int j=0; j<12; j++) if(worldMap[j][i]) display.drawPixel(110+i, 2+j, SH110X_WHITE);
+    display.drawPixel(110+(int)px_doom, 2+(int)py_doom, SH110X_WHITE);
+
+    if(nL.getState() == LOW) { // Forward
+      float nx = px_doom + cos(pa_doom) * 0.12; float ny = py_doom + sin(pa_doom) * 0.12;
+      if(worldMap[(int)ny][(int)nx] == 0) { px_doom = nx; py_doom = ny; }
+    }
+    if(nX.getState() == LOW) { // Backward
+      float nx = px_doom - cos(pa_doom) * 0.12; float ny = py_doom - sin(pa_doom) * 0.12;
+      if(worldMap[(int)ny][(int)nx] == 0) { px_doom = nx; py_doom = ny; }
+    }
+    if(nTr.getState() == LOW) pa_doom -= 0.1; if(nP.getState() == LOW) pa_doom += 0.1;
+    display.display();
+    if(nOk.isPressed()) { st = PAUSE; pauseOpt = 0; }
   }
 }
